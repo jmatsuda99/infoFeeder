@@ -1,11 +1,60 @@
+import json
 import sqlite3
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
-from db import init_db, add_feed, list_feeds, update_feed_status, delete_feed
+from db import init_db
 from fetcher import fetch_active_feeds
 
 DB_PATH = "data/alerts.db"
+FEEDS_PATH = "feeds.json"
+
+
+def load_feeds():
+    path = Path(FEEDS_PATH)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def save_feeds(feeds):
+    Path(FEEDS_PATH).write_text(
+        json.dumps(feeds, ensure_ascii=False, indent=2),
+        encoding="utf-8"
+    )
+
+
+def add_feed(name, url, category=""):
+    feeds = load_feeds()
+    for feed in feeds:
+        if feed.get("url", "").strip() == url.strip():
+            raise ValueError("同じURLのRSSはすでに登録されています")
+    feeds.append({
+        "name": name.strip(),
+        "url": url.strip(),
+        "category": category.strip(),
+        "is_active": True
+    })
+    save_feeds(feeds)
+
+
+def update_feed_status(index, is_active):
+    feeds = load_feeds()
+    feeds[index]["is_active"] = bool(is_active)
+    save_feeds(feeds)
+
+
+def delete_feed(index):
+    feeds = load_feeds()
+    del feeds[index]
+    save_feeds(feeds)
+
 
 st.set_page_config(page_title="Google Alerts RSS Viewer", layout="wide")
 st.title("Google Alerts RSS Viewer")
@@ -28,7 +77,7 @@ with tab1:
                 st.error("名前とRSS URLは必須です")
             else:
                 try:
-                    add_feed(name.strip(), url.strip(), category.strip())
+                    add_feed(name, url, category)
                     st.success("追加しました")
                     st.rerun()
                 except Exception as e:
@@ -36,24 +85,27 @@ with tab1:
 
     st.divider()
 
-    if st.button("RSS取得"):
-        try:
-            count = fetch_active_feeds()
-            st.success(f"取得完了: {count}件の新規記事を保存")
-        except Exception as e:
-            st.error(f"取得失敗: {e}")
+    col_a, col_b = st.columns([1, 2])
+    with col_a:
+        if st.button("RSS取得"):
+            try:
+                count = fetch_active_feeds()
+                st.success(f"取得完了: {count}件の新規記事を保存")
+            except Exception as e:
+                st.error(f"取得失敗: {e}")
+    with col_b:
+        st.caption("GitHub Actions も feeds.json を参照します。定期取得と同じ設定を使うには、このファイルをGitHubへ commit してください。")
 
-    feeds = list_feeds()
+    feeds = load_feeds()
 
     if not feeds:
         st.info("登録済みRSSはありません")
     else:
-        for feed in feeds:
-            feed_id = feed["id"]
-            name = feed["name"] or ""
-            url = feed["url"] or ""
-            category = feed["category"] or ""
-            is_active = feed["is_active"] or 0
+        for i, feed in enumerate(feeds):
+            name = feed.get("name", "")
+            url = feed.get("url", "")
+            category = feed.get("category", "")
+            is_active = bool(feed.get("is_active", True))
 
             col1, col2, col3 = st.columns([5, 1, 1])
 
@@ -63,15 +115,20 @@ with tab1:
                 st.caption(caption)
 
             with col2:
-                active = st.checkbox("有効", value=bool(is_active), key=f"active_{feed_id}")
-                if active != bool(is_active):
-                    update_feed_status(feed_id, active)
+                active = st.checkbox("有効", value=is_active, key=f"active_{i}")
+                if active != is_active:
+                    update_feed_status(i, active)
                     st.rerun()
 
             with col3:
-                if st.button("削除", key=f"delete_{feed_id}"):
-                    delete_feed(feed_id)
+                if st.button("削除", key=f"delete_{i}"):
+                    delete_feed(i)
                     st.rerun()
+
+    st.divider()
+    st.subheader("feeds.json")
+    st.code(Path(FEEDS_PATH).read_text(encoding="utf-8") if Path(FEEDS_PATH).exists() else "[]", language="json")
+    st.caption("定期取得に反映させるには、この feeds.json を GitHub リポジトリ側にも反映してください。")
 
 with tab2:
     conn = sqlite3.connect(DB_PATH)
@@ -90,13 +147,12 @@ with tab2:
     SELECT
         MAX(i.id) as id,
         MAX(i.published) as published,
-        MAX(f.name) as feed_name,
-        MAX(COALESCE(f.category, '')) as category,
+        MAX(i.feed_name) as feed_name,
+        MAX(COALESCE(i.category, '')) as category,
         i.link as link,
         MAX(i.title) as title,
         MAX(COALESCE(i.summary, '')) as summary
     FROM items i
-    JOIN feeds f ON i.feed_id = f.id
     WHERE 1=1
     """
     params = []
@@ -107,7 +163,7 @@ with tab2:
         params.extend([like, like])
 
     if feed_filter:
-        query += " AND f.name LIKE ?"
+        query += " AND i.feed_name LIKE ?"
         params.append(f"%{feed_filter}%")
 
     query += """
