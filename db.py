@@ -1,4 +1,3 @@
-
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -41,7 +40,6 @@ def init_db():
     """)
 
     conn.commit()
-
     _migrate_feeds_table(conn)
     conn.close()
 
@@ -72,7 +70,7 @@ def _migrate_feeds_table(conn):
 
     old_cols = _get_columns(conn, "feeds_old")
     select_parts = []
-    for col in ["id", "name", "url", "category", "is_active", "created_at", "updated_at"]:
+    for col in required:
         if col in old_cols:
             select_parts.append(col)
         elif col == "category":
@@ -80,9 +78,9 @@ def _migrate_feeds_table(conn):
         elif col == "is_active":
             select_parts.append("1 AS is_active")
         elif col in ("created_at", "updated_at"):
-            select_parts.append("'' AS " + col)
+            select_parts.append(f"'' AS {col}")
         else:
-            select_parts.append("NULL AS " + col)
+            select_parts.append(f"NULL AS {col}")
 
     cur.execute(f"""
     INSERT INTO feeds (id, name, url, category, is_active, created_at, updated_at)

@@ -1,4 +1,3 @@
-
 import sqlite3
 import pandas as pd
 import streamlit as st
@@ -89,13 +88,13 @@ with tab2:
 
     query = """
     SELECT
-        i.id,
-        i.published,
-        f.name as feed_name,
-        COALESCE(f.category, '') as category,
-        i.title,
-        i.link,
-        COALESCE(i.summary, '') as summary
+        MAX(i.id) as id,
+        MAX(i.published) as published,
+        MAX(f.name) as feed_name,
+        MAX(COALESCE(f.category, '')) as category,
+        i.link as link,
+        MAX(i.title) as title,
+        MAX(COALESCE(i.summary, '')) as summary
     FROM items i
     JOIN feeds f ON i.feed_id = f.id
     WHERE 1=1
@@ -111,7 +110,10 @@ with tab2:
         query += " AND f.name LIKE ?"
         params.append(f"%{feed_filter}%")
 
-    query += " ORDER BY COALESCE(i.published, ''), i.id DESC"
+    query += """
+    GROUP BY i.link
+    ORDER BY MAX(COALESCE(i.published, '')) DESC, MAX(i.id) DESC
+    """
 
     try:
         df = pd.read_sql_query(query, conn, params=params)
