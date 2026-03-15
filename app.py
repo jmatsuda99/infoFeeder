@@ -1,3 +1,4 @@
+
 import sqlite3
 import pandas as pd
 import streamlit as st
@@ -90,7 +91,6 @@ with tab2:
     SELECT
         MAX(i.id) as id,
         MAX(i.published) as published,
-        MAX(f.name) as feed_name,
         MAX(COALESCE(f.category, '')) as category,
         i.link as link,
         MAX(i.title) as title,
@@ -134,13 +134,6 @@ with tab2:
             use_container_width=True,
             hide_index=True,
             disabled=["published", "category", "title", "link"],
-            column_config={
-                "非表示": st.column_config.CheckboxColumn("非表示"),
-                "published": st.column_config.TextColumn("published"),
-                "category": st.column_config.TextColumn("category"),
-                "title": st.column_config.TextColumn("title"),
-                "link": st.column_config.TextColumn("link"),
-            },
             key="articles_editor",
         )
 
@@ -150,7 +143,11 @@ with tab2:
         st.divider()
         st.subheader(f"詳細表示（先頭 {detail_count} 件）")
 
-        visible_df = df[~df["link"].isin(hidden_links)].head(detail_count)
+        # 記事一覧の順序を維持して詳細表示
+        ordered_links = edited_df["link"].tolist()
+        ordered_df = df.set_index("link").loc[ordered_links].reset_index()
+
+        visible_df = ordered_df[~ordered_df["link"].isin(hidden_links)].head(detail_count)
 
         if visible_df.empty:
             st.info("詳細表示対象の記事がありません")
