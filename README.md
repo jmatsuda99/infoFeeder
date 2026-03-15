@@ -1,12 +1,17 @@
-# Google Alerts RSS Viewer (feeds.json 共有版)
+# Google Alerts RSS Viewer
 
-定期取得で新規記事が入らない問題を避けるため、RSS設定を `feeds.json` に分離した版です。
+Google Alerts の RSS を登録・取得・一覧表示する Streamlit アプリです。
 
-## 重要
+## できること
 
-- Streamlit アプリも GitHub Actions も **同じ `feeds.json`** を参照します。
-- 定期取得に反映させるには、`feeds.json` を GitHub リポジトリに commit してください。
-- アプリ上で `feeds.json` を更新しても、ホスティング環境によっては永続化されないことがあります。
+- RSS URLを後から追加
+- フィードの有効/無効切替
+- フィード削除
+- 有効フィードをまとめて取得
+- 記事一覧の検索
+- 複数記事の詳細表示
+- 旧版 `feeds` テーブルが残っていても起動時に自動移行
+- GitHub Actionsで30分ごとにRSS取得
 
 ## セットアップ
 
@@ -15,18 +20,18 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## 30分ごとの定期取得
+## GitHub Actions
 
-`.github/workflows/fetch_rss.yml` により、毎時 7 分 / 37 分に `run_fetch.py` が実行されます。
+`.github/workflows/fetch_rss.yml` により、毎時7分・37分に `run_fetch.py` が実行されます。
 
-## まずやること
+### 初回に必要なこと
 
-1. `feeds.json` を自分の RSS URL に書き換える
-2. GitHub に push する
-3. Actions を有効化する
-4. 必要なら Streamlit 側でも同じリポジトリを再デプロイする
+1. このリポジトリを GitHub に push
+2. GitHub の Actions を有効化
+3. アプリ上で RSS URL を登録
+4. `workflow_dispatch` か定期実行で `data/alerts.db` を更新
 
-## 重複除去
+## 注意
 
-- 保存時に URL の query / fragment を除去
-- 表示時に `link` 単位で集約
+- `data/alerts.db` は GitHub Actions から更新して commit/push する前提なので、`.gitignore` から除外していません。
+- GitHub Actions の `schedule` は高負荷時に遅れることがあります。
