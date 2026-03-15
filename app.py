@@ -28,27 +28,19 @@ with tab1:
             if not name.strip() or not url.strip():
                 st.error("名前とRSS URLは必須です")
             else:
-                try:
-                    add_feed(name.strip(), url.strip(), category.strip())
-                    st.success("追加しました")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"追加失敗: {e}")
+                add_feed(name.strip(), url.strip(), category.strip())
+                st.success("追加しました")
+                st.rerun()
 
     st.divider()
 
     if st.button("RSS取得"):
-        try:
-            count = fetch_active_feeds()
-            st.success(f"取得完了: {count}件の新規記事を保存")
-        except Exception as e:
-            st.error(f"取得失敗: {e}")
+        count = fetch_active_feeds()
+        st.success(f"{count}件の新規記事を取得")
 
     feeds = list_feeds()
 
-    if not feeds:
-        st.info("登録済みRSSはありません")
-    else:
+    if feeds:
         for feed in feeds:
             feed_id = feed["id"]
             name = feed["name"] or ""
@@ -56,7 +48,7 @@ with tab1:
             category = feed["category"] or ""
             is_active = feed["is_active"] or 0
 
-            col1, col2, col3 = st.columns([5, 1, 1])
+            col1, col2, col3 = st.columns([5,1,1])
 
             with col1:
                 st.markdown(f"**{name}**")
@@ -75,30 +67,32 @@ with tab1:
                     st.rerun()
 
 with tab2:
+
     conn = sqlite3.connect(DB_PATH)
 
     st.subheader("記事一覧")
 
-    col1, col2, col3 = st.columns([2, 2, 1])
+    col1, col2 = st.columns([3,1])
+
     with col1:
         keyword = st.text_input("検索")
+
     with col2:
-        feed_filter = st.text_input("フィード名で絞り込み")
-    with col3:
-        detail_count = st.number_input("詳細表示件数", min_value=1, max_value=100, value=100, step=1)
+        detail_count = st.number_input("詳細表示件数", min_value=1, max_value=100, value=100)
 
     query = """
     SELECT
         MAX(i.id) as id,
         MAX(i.published) as published,
-        MAX(COALESCE(f.category, '')) as category,
+        MAX(COALESCE(f.category,'')) as category,
         i.link as link,
         MAX(i.title) as title,
-        MAX(COALESCE(i.summary, '')) as summary
+        MAX(COALESCE(i.summary,'')) as summary
     FROM items i
     JOIN feeds f ON i.feed_id = f.id
     WHERE 1=1
     """
+
     params = []
 
     if keyword:
@@ -106,62 +100,66 @@ with tab2:
         like = f"%{keyword}%"
         params.extend([like, like])
 
-    if feed_filter:
-        query += " AND f.name LIKE ?"
-        params.append(f"%{feed_filter}%")
-
     query += """
     GROUP BY i.link
-    ORDER BY MAX(COALESCE(i.published, '')) DESC, MAX(i.id) DESC
+    ORDER BY MAX(COALESCE(i.published,'')) DESC, MAX(i.id) DESC
     """
 
-    try:
-        df = pd.read_sql_query(query, conn, params=params)
-    finally:
-        conn.close()
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
 
     if df.empty:
         st.info("記事がありません")
     else:
+
         if "hidden_links" not in st.session_state:
             st.session_state.hidden_links = set()
 
-        display_df = df[["published", "category", "title", "link"]].copy()
-        display_df.insert(0, "非表示", display_df["link"].apply(lambda x: x in st.session_state.hidden_links))
+        display_df = df[["published","category","title","link"]].copy()
+
+        display_df.insert(
+            0,
+            "非表示",
+            display_df["link"].apply(lambda x: x in st.session_state.hidden_links)
+        )
 
         edited_df = st.data_editor(
             display_df,
             use_container_width=True,
             hide_index=True,
-            disabled=["published", "category", "title", "link"],
-            key="articles_editor",
+            disabled=["published","category","title","link"]
         )
 
-        hidden_links = set(edited_df.loc[edited_df["非表示"] == True, "link"].tolist())
+        hidden_links = set(
+            edited_df.loc[edited_df["非表示"] == True,"link"].tolist()
+        )
+
         st.session_state.hidden_links = hidden_links
 
         st.divider()
-        st.subheader(f"詳細表示（先頭 {detail_count} 件）")
+        st.subheader(f"詳細表示（最新 {detail_count} 件）")
 
-        # 記事一覧の順序を維持して詳細表示
-        ordered_links = edited_df["link"].tolist()
-        ordered_df = df.set_index("link").loc[ordered_links].reset_index()
+        visible_df = df[~df["link"].isin(hidden_links)]
 
-        visible_df = ordered_df[~ordered_df["link"].isin(hidden_links)].head(detail_count)
+        # ★ published 新しい順で表示
+        visible_df = visible_df.sort_values(
+            by="published",
+            ascending=False
+        ).head(detail_count)
 
-        if visible_df.empty:
-            st.info("詳細表示対象の記事がありません")
-        else:
-            for _, row in visible_df.iterrows():
-                title = row["title"] if row["title"] else "(no title)"
-                published = row["published"] if row["published"] else ""
+        for _, row in visible_df.iterrows():
 
-                with st.expander(f"{published} | {title}", expanded=False):
-                    if row["category"]:
-                        st.markdown(f"**Category**: {row['category']}")
-                    if row["published"]:
-                        st.markdown(f"**Published**: {row['published']}")
-                    if row["link"]:
-                        st.markdown(f"**Link**: {row['link']}")
-                    st.markdown("**Summary**")
-                    st.write(row["summary"] if row["summary"] else "要約なし")
+            title = row["title"] if row["title"] else "(no title)"
+            published = row["published"] if row["published"] else ""
+
+            with st.expander(f"{published} | {title}"):
+
+                if row["category"]:
+                    st.markdown(f"**Category:** {row['category']}")
+
+                if row["link"]:
+                    st.markdown(f"**Link:** {row['link']}")
+
+                st.markdown("**Summary**")
+
+                st.write(row["summary"] if row["summary"] else "要約なし")
