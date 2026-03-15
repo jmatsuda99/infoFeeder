@@ -84,7 +84,7 @@ with tab2:
     with col2:
         feed_filter = st.text_input("フィード名で絞り込み")
     with col3:
-        detail_count = st.number_input("詳細表示件数", min_value=1, max_value=50, value=10, step=1)
+        detail_count = st.number_input("詳細表示件数", min_value=1, max_value=100, value=100, step=1)
 
     query = """
     SELECT
@@ -123,26 +123,48 @@ with tab2:
     if df.empty:
         st.info("記事がありません")
     else:
-        st.dataframe(
-            df[["published", "category", "title", "link"]],
+        if "hidden_links" not in st.session_state:
+            st.session_state.hidden_links = set()
+
+        display_df = df[["published", "category", "title", "link"]].copy()
+        display_df.insert(0, "非表示", display_df["link"].apply(lambda x: x in st.session_state.hidden_links))
+
+        edited_df = st.data_editor(
+            display_df,
             use_container_width=True,
             hide_index=True,
+            disabled=["published", "category", "title", "link"],
+            column_config={
+                "非表示": st.column_config.CheckboxColumn("非表示"),
+                "published": st.column_config.TextColumn("published"),
+                "category": st.column_config.TextColumn("category"),
+                "title": st.column_config.TextColumn("title"),
+                "link": st.column_config.TextColumn("link"),
+            },
+            key="articles_editor",
         )
+
+        hidden_links = set(edited_df.loc[edited_df["非表示"] == True, "link"].tolist())
+        st.session_state.hidden_links = hidden_links
 
         st.divider()
         st.subheader(f"詳細表示（先頭 {detail_count} 件）")
 
-        detail_df = df.head(detail_count)
-        for _, row in detail_df.iterrows():
-            title = row["title"] if row["title"] else "(no title)"
-            published = row["published"] if row["published"] else ""
+        visible_df = df[~df["link"].isin(hidden_links)].head(detail_count)
 
-            with st.expander(f"{published} | {title}", expanded=False):
-                if row["category"]:
-                    st.markdown(f"**Category**: {row['category']}")
-                if row["published"]:
-                    st.markdown(f"**Published**: {row['published']}")
-                if row["link"]:
-                    st.markdown(f"**Link**: {row['link']}")
-                st.markdown("**Summary**")
-                st.write(row["summary"] if row["summary"] else "要約なし")
+        if visible_df.empty:
+            st.info("詳細表示対象の記事がありません")
+        else:
+            for _, row in visible_df.iterrows():
+                title = row["title"] if row["title"] else "(no title)"
+                published = row["published"] if row["published"] else ""
+
+                with st.expander(f"{published} | {title}", expanded=False):
+                    if row["category"]:
+                        st.markdown(f"**Category**: {row['category']}")
+                    if row["published"]:
+                        st.markdown(f"**Published**: {row['published']}")
+                    if row["link"]:
+                        st.markdown(f"**Link**: {row['link']}")
+                    st.markdown("**Summary**")
+                    st.write(row["summary"] if row["summary"] else "要約なし")
