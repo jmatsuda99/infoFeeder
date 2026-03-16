@@ -19,6 +19,7 @@ if "hidden_links" not in st.session_state:
 tab1, tab2 = st.tabs(["RSS管理", "記事一覧"])
 
 with tab1:
+
     st.subheader("RSS URL追加")
 
     with st.form("add_feed_form"):
@@ -43,15 +44,19 @@ with tab1:
     if st.button("RSS取得"):
         try:
             stats = fetch_active_feeds()
+
             st.success(
                 f"配信記事 {stats['feed_entries']} 件 / "
                 f"新規 {stats['inserted']} 件 / "
                 f"既存 {stats['existing']} 件"
             )
+
             if stats["feeds"] == 0:
                 st.info("有効なRSSフィードがありません")
-            elif stats["feed_entries"] == 0:
-                st.info("RSSには現在、新しい配信記事がありません")
+
+            if stats["feed_entries"] == 0:
+                st.info("RSSには現在記事が配信されていません")
+
         except Exception as e:
             st.error(f"取得失敗: {e}")
 
@@ -65,7 +70,7 @@ with tab1:
             category = feed["category"] or ""
             is_active = feed["is_active"] or 0
 
-            col1, col2, col3 = st.columns([5, 1, 1])
+            col1, col2, col3 = st.columns([5,1,1])
 
             with col1:
                 st.markdown(f"**{name}**")
@@ -86,11 +91,12 @@ with tab1:
         st.info("登録済みRSSはありません")
 
 with tab2:
+
     conn = sqlite3.connect(DB_PATH)
 
     st.subheader("記事一覧")
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([3,1])
 
     with col1:
         keyword = st.text_input("検索")
@@ -129,7 +135,9 @@ with tab2:
     if df.empty:
         st.info("記事がありません")
     else:
-        display_df = df[["published", "category", "title", "link"]].copy()
+
+        display_df = df[[ "published","category","title","link" ]].copy()
+
         display_df.insert(
             0,
             "非表示",
@@ -140,48 +148,49 @@ with tab2:
             display_df,
             use_container_width=True,
             hide_index=True,
-            disabled=["published", "category", "title", "link"],
-            key="list_editor"
+            disabled=["published","category","title","link"]
         )
 
-        list_hidden_links = set(
-            edited_df.loc[edited_df["非表示"] == True, "link"].tolist()
+        hidden_links = set(
+            edited_df.loc[edited_df["非表示"] == True,"link"].tolist()
         )
-        st.session_state.hidden_links = list_hidden_links
+
+        st.session_state.hidden_links = hidden_links
 
         st.divider()
         st.subheader(f"詳細表示（最新 {detail_count} 件）")
 
-        visible_df = df[~df["link"].isin(st.session_state.hidden_links)].copy()
+        visible_df = df[~df["link"].isin(hidden_links)].copy()
         visible_df = visible_df.sort_values(by="published", ascending=False).head(detail_count)
 
-        if visible_df.empty:
-            st.info("詳細表示対象の記事がありません")
-        else:
-            for _, row in visible_df.iterrows():
-                title = row["title"] if row["title"] else "(no title)"
-                published = row["published"] if row["published"] else ""
-                link = row["link"] if row["link"] else ""
+        for _, row in visible_df.iterrows():
 
-                exp_col1, exp_col2 = st.columns([8, 1])
-                with exp_col2:
-                    hidden_here = st.checkbox(
-                        "非表示",
-                        value=(link in st.session_state.hidden_links),
-                        key=f"detail_hide_{link}"
-                    )
-                    if hidden_here and link not in st.session_state.hidden_links:
-                        st.session_state.hidden_links.add(link)
-                        st.rerun()
-                    if (not hidden_here) and (link in st.session_state.hidden_links):
-                        st.session_state.hidden_links.remove(link)
-                        st.rerun()
+            title = row["title"] if row["title"] else "(no title)"
+            published = row["published"] if row["published"] else ""
+            link = row["link"]
 
-                with exp_col1:
-                    with st.expander(f"{published} | {title}", expanded=False):
-                        if row["category"]:
-                            st.markdown(f"**Category:** {row['category']}")
-                        if row["link"]:
-                            st.markdown(f"**Link:** {row['link']}")
-                        st.markdown("**Summary**")
-                        st.write(row["summary"] if row["summary"] else "要約なし")
+            col_a, col_b = st.columns([8,1])
+
+            with col_b:
+                hide = st.checkbox(
+                    "非表示",
+                    value=(link in st.session_state.hidden_links),
+                    key=f"detail_{link}"
+                )
+
+                if hide:
+                    st.session_state.hidden_links.add(link)
+                else:
+                    st.session_state.hidden_links.discard(link)
+
+            with col_a:
+                with st.expander(f"{published} | {title}"):
+
+                    if row["category"]:
+                        st.markdown(f"**Category:** {row['category']}")
+
+                    if link:
+                        st.markdown(f"**Link:** {link}")
+
+                    st.markdown("**Summary**")
+                    st.write(row["summary"] if row["summary"] else "要約なし")

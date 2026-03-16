@@ -38,38 +38,37 @@ def init_db():
     conn.commit()
     conn.close()
 
-def add_feed(name, url, category=""):
-    now = datetime.now().isoformat(timespec="seconds")
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-    INSERT INTO feeds(name, url, category, is_active, created_at, updated_at)
-    VALUES(?,?,?,?,?,?)
-    """, (name, url, category, 1, now, now))
+def add_feed(name,url,category=""):
+    now=datetime.now().isoformat(timespec="seconds")
+    conn=get_conn()
+    cur=conn.cursor()
+    cur.execute(
+        """INSERT INTO feeds(name,url,category,is_active,created_at,updated_at)
+        VALUES(?,?,?,?,?,?)""",(name,url,category,1,now,now))
     conn.commit()
     conn.close()
 
 def list_feeds():
-    conn = get_conn()
-    cur = conn.cursor()
+    conn=get_conn()
+    cur=conn.cursor()
     cur.execute("SELECT * FROM feeds ORDER BY id DESC")
-    rows = cur.fetchall()
+    rows=cur.fetchall()
     conn.close()
     return rows
 
-def update_feed_status(feed_id, is_active):
-    conn = get_conn()
-    cur = conn.cursor()
+def update_feed_status(feed_id,is_active):
+    conn=get_conn()
+    cur=conn.cursor()
     cur.execute(
         "UPDATE feeds SET is_active=? WHERE id=?",
-        (1 if is_active else 0, feed_id)
+        (1 if is_active else 0,feed_id)
     )
     conn.commit()
     conn.close()
 
 def delete_feed(feed_id):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM feeds WHERE id=?", (feed_id,))
+    conn=get_conn()
+    cur=conn.cursor()
+    cur.execute("DELETE FROM feeds WHERE id=?",(feed_id,))
     conn.commit()
     conn.close()
