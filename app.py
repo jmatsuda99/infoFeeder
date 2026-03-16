@@ -31,15 +31,29 @@ with tab1:
             if not name.strip() or not url.strip():
                 st.error("名前とRSS URLは必須です")
             else:
-                add_feed(name.strip(), url.strip(), category.strip())
-                st.success("追加しました")
-                st.rerun()
+                try:
+                    add_feed(name.strip(), url.strip(), category.strip())
+                    st.success("追加しました")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"追加失敗: {e}")
 
     st.divider()
 
     if st.button("RSS取得"):
-        count = fetch_active_feeds()
-        st.success(f"{count}件の新規記事を取得")
+        try:
+            stats = fetch_active_feeds()
+            st.success(
+                f"配信記事 {stats['feed_entries']} 件 / "
+                f"新規 {stats['inserted']} 件 / "
+                f"既存 {stats['existing']} 件"
+            )
+            if stats["feeds"] == 0:
+                st.info("有効なRSSフィードがありません")
+            elif stats["feed_entries"] == 0:
+                st.info("RSSには現在、新しい配信記事がありません")
+        except Exception as e:
+            st.error(f"取得失敗: {e}")
 
     feeds = list_feeds()
 
@@ -51,7 +65,7 @@ with tab1:
             category = feed["category"] or ""
             is_active = feed["is_active"] or 0
 
-            col1, col2, col3 = st.columns([5,1,1])
+            col1, col2, col3 = st.columns([5, 1, 1])
 
             with col1:
                 st.markdown(f"**{name}**")
@@ -68,13 +82,15 @@ with tab1:
                 if st.button("削除", key=f"delete_{feed_id}"):
                     delete_feed(feed_id)
                     st.rerun()
+    else:
+        st.info("登録済みRSSはありません")
 
 with tab2:
     conn = sqlite3.connect(DB_PATH)
 
     st.subheader("記事一覧")
 
-    col1, col2 = st.columns([3,1])
+    col1, col2 = st.columns([3, 1])
 
     with col1:
         keyword = st.text_input("検索")
@@ -113,7 +129,7 @@ with tab2:
     if df.empty:
         st.info("記事がありません")
     else:
-        display_df = df[["published","category","title","link"]].copy()
+        display_df = df[["published", "category", "title", "link"]].copy()
         display_df.insert(
             0,
             "非表示",
@@ -124,7 +140,7 @@ with tab2:
             display_df,
             use_container_width=True,
             hide_index=True,
-            disabled=["published","category","title","link"],
+            disabled=["published", "category", "title", "link"],
             key="list_editor"
         )
 
