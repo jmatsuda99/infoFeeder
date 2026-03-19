@@ -1,0 +1,8 @@
+[
+  {
+    "name": "Sample Energy Feed",
+    "url": "https://www.google.com/alerts/feeds/REPLACE_WITH_YOUR_FEED_ID",
+    "category": "energy",
+    "is_active": false
+  }
+]
