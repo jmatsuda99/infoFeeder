@@ -1,0 +1,7 @@
+- Use .venv in the repo root.
+- Read the existing code before making changes.
+- Keep the current project structure unless there is a strong reason to change it.
+- Make the smallest possible change for each task.
+- Do not rename files or move modules unless necessary.
+- Ask before adding or changing major dependencies.
+- Explain which files were changed and how to verify the result.
