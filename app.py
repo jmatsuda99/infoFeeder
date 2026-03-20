@@ -1,35 +1,85 @@
+import json
 
-import sqlite3
-import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
-from db import init_db, add_feed, list_feeds, update_feed_status, delete_feed
+from article_utils import (
+    article_key,
+    deduplicate_articles,
+    parse_google_alert_urls,
+    text_for_copy,
+    unique_urls,
+)
+from db import (
+    add_feed,
+    delete_feed,
+    init_db,
+    list_articles,
+    list_feeds,
+    update_feed_status,
+)
 from fetcher import fetch_active_feeds
 
-DB_PATH = "data/alerts.db"
 
 st.set_page_config(page_title="Google Alerts RSS Viewer", layout="wide")
 st.title("Google Alerts RSS Viewer")
 
 init_db()
 
-def parse_google_alert_urls(text):
-    urls = []
-    for line in text.splitlines():
-        value = line.strip()
-        if not value:
-            continue
-        if value.startswith("http://") or value.startswith("https://"):
-            urls.append(value)
-    return urls
+if "read_article_keys" not in st.session_state:
+    st.session_state.read_article_keys = set()
 
-if "hidden_links" not in st.session_state:
-    st.session_state.hidden_links = set()
 
-tab1, tab2 = st.tabs(["RSS管理", "記事一覧"])
+def render_copy_button(copy_text, key):
+    button_id = f"copy-button-{key}"
+    payload = json.dumps(copy_text)
+    html_block = f"""
+    <button id="{button_id}" style="
+        background:#f3f4f6;
+        border:1px solid #d1d5db;
+        border-radius:6px;
+        padding:0.35rem 0.75rem;
+        cursor:pointer;
+        font-size:0.9rem;
+    ">コピー</button>
+    <script>
+    const button = document.getElementById("{button_id}");
+    if (button) {{
+        button.onclick = async () => {{
+            try {{
+                await navigator.clipboard.writeText({payload});
+                const original = button.innerText;
+                button.innerText = "コピー済み";
+                setTimeout(() => button.innerText = original, 1200);
+            }} catch (error) {{
+                button.innerText = "失敗";
+            }}
+        }};
+    }}
+    </script>
+    """
+    components.html(html_block, height=40)
+
+
+def add_urls_as_feeds(urls, name_prefix, category):
+    added_count = 0
+    skipped_count = 0
+
+    for index, feed_url in enumerate(urls, start=1):
+        feed_name = f"{name_prefix or 'Google Alert'} {index}"
+        created = add_feed(feed_name, feed_url, category)
+        if created:
+            added_count += 1
+        else:
+            skipped_count += 1
+
+    return added_count, skipped_count
+
+
+tab1, tab2 = st.tabs(["RSS登録", "記事一覧"])
 
 with tab1:
-    st.subheader("RSS URL追加")
+    st.subheader("RSS URL登録")
 
     with st.form("add_feed_form"):
         name = st.text_input("名前")
@@ -39,46 +89,48 @@ with tab1:
 
         if submitted:
             if not name.strip() or not url.strip():
-                st.error("名前とRSS URLは必須です")
+                st.error("名前とRSS URLを入力してください")
             else:
                 created = add_feed(name.strip(), url.strip(), category.strip())
                 if created:
                     st.success("追加しました")
                     st.rerun()
                 else:
-                    st.warning("同じRSS URLはすでに登録済みです")
+                    st.warning("そのRSS URLはすでに登録されています")
 
     st.caption("GoogleアラートのRSS URLもそのまま登録できます")
+    st.info("Google Alerts RSS URLs can be pasted in bulk below. Paste one URL per line.")
 
     with st.form("bulk_google_alert_form"):
         bulk_name_prefix = st.text_input("一括追加時の名前プレフィックス", value="Google Alert")
         bulk_category = st.text_input("一括追加時のカテゴリ", key="bulk_category")
         bulk_urls = st.text_area(
-            "GoogleアラートRSS URL一覧",
-            help="Googleアラート管理画面でRSSリンクをコピーし、1行に1件ずつ貼り付けてください"
+            "GoogleアラートのRSS URL一覧",
+            help="Googleアラート管理画面のRSSリンクを、1行につき1件ずつ貼り付けてください。"
         )
         bulk_submitted = st.form_submit_button("GoogleアラートRSSを一括追加")
 
         if bulk_submitted:
             urls = parse_google_alert_urls(bulk_urls)
-            if not urls:
+            deduped_urls = unique_urls(urls)
+            duplicate_count = len(urls) - len(deduped_urls)
+
+            if not deduped_urls:
                 st.error("RSS URLを1件以上入力してください")
             else:
-                added_count = 0
-                skipped_count = 0
+                added_count, skipped_count = add_urls_as_feeds(
+                    deduped_urls,
+                    bulk_name_prefix.strip(),
+                    bulk_category.strip()
+                )
 
-                for index, feed_url in enumerate(urls, start=1):
-                    feed_name = f"{bulk_name_prefix.strip() or 'Google Alert'} {index}"
-                    created = add_feed(feed_name, feed_url, bulk_category.strip())
-                    if created:
-                        added_count += 1
-                    else:
-                        skipped_count += 1
-
+                st.info(f"Parsed {len(urls)} URLs, using {len(deduped_urls)} unique URLs.")
+                if duplicate_count:
+                    st.info(f"Ignored {duplicate_count} duplicate URLs in the pasted list.")
                 if added_count:
                     st.success(f"{added_count}件のRSSを追加しました")
                 if skipped_count:
-                    st.info(f"{skipped_count}件は重複のため追加しませんでした")
+                    st.info(f"{skipped_count}件は既存URLのため追加しませんでした")
                 if added_count:
                     st.rerun()
 
@@ -86,7 +138,7 @@ with tab1:
 
     if st.button("RSS取得"):
         count = fetch_active_feeds()
-        st.success(f"{count}件の新規記事を取得")
+        st.success(f"{count}件の新着記事を取得しました")
 
     feeds = list_feeds()
 
@@ -98,7 +150,7 @@ with tab1:
             category = feed["category"] or ""
             is_active = feed["is_active"] or 0
 
-            col1, col2, col3 = st.columns([5,1,1])
+            col1, col2, col3 = st.columns([5, 1, 1])
 
             with col1:
                 st.markdown(f"**{name}**")
@@ -117,102 +169,88 @@ with tab1:
                     st.rerun()
 
 with tab2:
-    conn = sqlite3.connect(DB_PATH)
 
     st.subheader("記事一覧")
 
-    col1, col2 = st.columns([3,1])
+    col1, col2, col3 = st.columns([3, 1, 1.2])
 
     with col1:
-        keyword = st.text_input("検索")
+        keyword = st.text_input("キーワード")
 
     with col2:
-        detail_count = st.number_input("詳細表示件数", min_value=1, max_value=100, value=100)
+        detail_count = st.number_input("表示件数", min_value=1, max_value=100, value=100)
 
-    query = """
-    SELECT
-        MAX(i.id) as id,
-        MAX(i.published) as published,
-        MAX(COALESCE(f.category,'')) as category,
-        i.link as link,
-        MAX(i.title) as title,
-        MAX(COALESCE(i.summary,'')) as summary
-    FROM items i
-    JOIN feeds f ON i.feed_id = f.id
-    WHERE 1=1
-    """
+    with col3:
+        read_filter = st.selectbox("表示", ["未読", "既読", "すべて"], index=0)
 
-    params = []
+    if st.button("Fetch RSS", key="fetch_articles_tab"):
+        count = fetch_active_feeds()
+        st.success(f"Fetched {count} new articles")
 
-    if keyword:
-        query += " AND (i.title LIKE ? OR i.summary LIKE ?)"
-        like = f"%{keyword}%"
-        params.extend([like, like])
-
-    query += """
-    GROUP BY i.link
-    ORDER BY MAX(COALESCE(i.published,'')) DESC, MAX(i.id) DESC
-    """
-
-    df = pd.read_sql_query(query, conn, params=params)
-    conn.close()
+    df = list_articles(keyword)
 
     if df.empty:
         st.info("記事がありません")
     else:
-        display_df = df[["published","category","title","link"]].copy()
-        display_df.insert(
-            0,
-            "非表示",
-            display_df["link"].apply(lambda x: x in st.session_state.hidden_links)
+        df["article_key"] = df.apply(
+            lambda row: article_key(row["title"], row["link"]),
+            axis=1
         )
+        df["is_read"] = df["article_key"].apply(
+            lambda key: key in st.session_state.read_article_keys
+        )
+        df = deduplicate_articles(df)
 
-        edited_df = st.data_editor(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-            disabled=["published","category","title","link"],
-            key="list_editor"
-        )
-
-        list_hidden_links = set(
-            edited_df.loc[edited_df["非表示"] == True, "link"].tolist()
-        )
-        st.session_state.hidden_links = list_hidden_links
+        if read_filter == "未読":
+            filtered_df = df[df["is_read"] == False].copy()
+        elif read_filter == "既読":
+            filtered_df = df[df["is_read"] == True].copy()
+        else:
+            filtered_df = df.copy()
 
         st.divider()
         st.subheader(f"詳細表示（最新 {detail_count} 件）")
 
-        visible_df = df[~df["link"].isin(st.session_state.hidden_links)].copy()
-        visible_df = visible_df.sort_values(by="published", ascending=False).head(detail_count)
+        visible_df = filtered_df.sort_values(by="published", ascending=False).head(detail_count)
 
         if visible_df.empty:
-            st.info("詳細表示対象の記事がありません")
+            st.info("該当する記事はありません")
         else:
             for _, row in visible_df.iterrows():
                 title = row["title"] if row["title"] else "(no title)"
                 published = row["published"] if row["published"] else ""
                 link = row["link"] if row["link"] else ""
+                item_id = int(row["id"])
+                current_article_key = row["article_key"]
+                is_read = bool(row["is_read"])
 
-                exp_col1, exp_col2 = st.columns([8, 1])
-                with exp_col2:
-                    hidden_here = st.checkbox(
-                        "非表示",
-                        value=(link in st.session_state.hidden_links),
-                        key=f"detail_hide_{link}"
-                    )
-                    if hidden_here and link not in st.session_state.hidden_links:
-                        st.session_state.hidden_links.add(link)
-                        st.rerun()
-                    if (not hidden_here) and (link in st.session_state.hidden_links):
-                        st.session_state.hidden_links.remove(link)
-                        st.rerun()
+                exp_col1, exp_col2 = st.columns([1.2, 8])
 
                 with exp_col1:
-                    with st.expander(f"{published} | {title}", expanded=False):
+                    read_here = st.checkbox("既読", value=is_read, key=f"read_{item_id}")
+                    if read_here != is_read:
+                        if read_here:
+                            st.session_state.read_article_keys.add(current_article_key)
+                        else:
+                            st.session_state.read_article_keys.discard(current_article_key)
+                        st.rerun()
+
+                with exp_col2:
+                    show_detail = st.toggle(
+                        f"{published} | {title}",
+                        value=False,
+                        key=f"show_detail_{item_id}"
+                    )
+
+                    if show_detail and not is_read:
+                        st.session_state.read_article_keys.add(current_article_key)
+                        is_read = True
+
+                    if show_detail:
                         if row["category"]:
                             st.markdown(f"**Category:** {row['category']}")
                         if row["link"]:
                             st.markdown(f"**Link:** {row['link']}")
+                            render_copy_button(text_for_copy(title, link), f"{item_id}")
                         st.markdown("**Summary**")
                         st.write(row["summary"] if row["summary"] else "要約なし")

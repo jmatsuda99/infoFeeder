@@ -3,6 +3,8 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 DB_PATH="data/alerts.db"
 
 def get_conn():
@@ -79,3 +81,36 @@ def delete_feed(feed_id):
     cur.execute("DELETE FROM feeds WHERE id=?", (feed_id,))
     conn.commit()
     conn.close()
+
+
+def list_articles(keyword=""):
+    conn = get_conn()
+
+    query = """
+    SELECT
+        MAX(i.id) as id,
+        MAX(i.published) as published,
+        MAX(COALESCE(f.category, '')) as category,
+        i.link as link,
+        MAX(i.title) as title,
+        MAX(COALESCE(i.summary, '')) as summary
+    FROM items i
+    JOIN feeds f ON i.feed_id = f.id
+    WHERE 1=1
+    """
+
+    params = []
+
+    if keyword:
+        query += " AND (i.title LIKE ? OR i.summary LIKE ?)"
+        like = f"%{keyword}%"
+        params.extend([like, like])
+
+    query += """
+    GROUP BY i.link
+    ORDER BY MAX(COALESCE(i.published, '')) DESC, MAX(i.id) DESC
+    """
+
+    df = pd.read_sql_query(query, conn, params=params)
+    conn.close()
+    return df
