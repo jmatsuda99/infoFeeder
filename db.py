@@ -22,11 +22,21 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
         url TEXT UNIQUE,
+        base_url TEXT,
+        source_type TEXT DEFAULT 'rss',
         category TEXT,
         is_active INTEGER DEFAULT 1,
         created_at TEXT,
         updated_at TEXT
     )""")
+
+    feed_columns = {row["name"] for row in cur.execute("PRAGMA table_info(feeds)")}
+    if "base_url" not in feed_columns:
+        cur.execute("ALTER TABLE feeds ADD COLUMN base_url TEXT")
+    if "source_type" not in feed_columns:
+        cur.execute("ALTER TABLE feeds ADD COLUMN source_type TEXT DEFAULT 'rss'")
+    cur.execute("UPDATE feeds SET base_url=COALESCE(base_url, url) WHERE base_url IS NULL OR base_url = ''")
+    cur.execute("UPDATE feeds SET source_type='rss' WHERE source_type IS NULL OR source_type = ''")
 
     cur.execute("""CREATE TABLE IF NOT EXISTS items(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,16 +70,16 @@ def init_db():
     conn.commit()
     conn.close()
 
-def add_feed(name,url,category=""):
+def add_feed(name,url,category="", source_type="rss", base_url=None):
     now=datetime.now().isoformat(timespec="seconds")
     conn=get_conn()
     cur=conn.cursor()
 
     try:
         cur.execute("""
-        INSERT INTO feeds(name,url,category,is_active,created_at,updated_at)
-        VALUES(?,?,?,?,?,?)
-        """,(name,url,category,1,now,now))
+        INSERT INTO feeds(name,url,base_url,source_type,category,is_active,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)
+        """,(name,url,base_url or url,source_type,category,1,now,now))
         conn.commit()
         return True
     except sqlite3.IntegrityError:
