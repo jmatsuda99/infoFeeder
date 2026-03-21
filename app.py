@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -16,6 +17,7 @@ from db import (
     init_db,
     list_articles,
     list_feeds,
+    update_article_read_status,
     update_feed_status,
 )
 from fetcher import fetch_active_feeds
@@ -26,8 +28,62 @@ st.title("Google Alerts RSS Viewer")
 
 init_db()
 
-if "read_article_keys" not in st.session_state:
-    st.session_state.read_article_keys = set()
+
+def schedule_page_refresh():
+    now = datetime.now()
+    next_half_hour = get_next_half_hour(now)
+    delay_ms = max(
+        1000,
+        int((next_half_hour - now).total_seconds() * 1000) + 250
+    )
+    html_block = f"""
+    <script>
+    setTimeout(() => {{
+        window.parent.location.reload();
+    }}, {delay_ms});
+    </script>
+    """
+    components.html(html_block, height=0)
+
+
+def get_next_half_hour(now):
+    next_half_hour = now.replace(second=0, microsecond=0)
+    if now.minute < 30:
+        next_half_hour = next_half_hour.replace(minute=30)
+    else:
+        next_half_hour = (next_half_hour + timedelta(hours=1)).replace(minute=0)
+    return next_half_hour
+
+
+def run_scheduled_fetch():
+    now = datetime.now()
+    current_slot = None
+
+    if now.minute in (0, 30):
+        current_slot = now.strftime("%Y-%m-%d %H:%M")
+
+    if current_slot and st.session_state.get("last_auto_fetch_slot") != current_slot:
+        count = fetch_active_feeds()
+        st.session_state.last_auto_fetch_slot = current_slot
+        st.session_state.auto_fetch_message = (
+            f"Auto-fetched {count} new articles at {now.strftime('%Y-%m-%d %H:%M:%S')}."
+        )
+
+    if not current_slot and st.session_state.get("last_auto_fetch_slot"):
+        last_slot = st.session_state["last_auto_fetch_slot"]
+        if last_slot[:14] != now.strftime("%Y-%m-%d %H:"):
+            st.session_state.last_auto_fetch_slot = None
+
+    return get_next_half_hour(now)
+
+
+next_auto_fetch_at = run_scheduled_fetch()
+schedule_page_refresh()
+
+if st.session_state.get("auto_fetch_message"):
+    st.caption(st.session_state["auto_fetch_message"])
+
+st.caption(f"Next auto fetch: {next_auto_fetch_at.strftime('%Y-%m-%d %H:%M')}")
 
 
 def render_copy_button(copy_text, key):
@@ -192,13 +248,11 @@ with tab2:
     if df.empty:
         st.info("記事がありません")
     else:
-        df["article_key"] = df.apply(
-            lambda row: article_key(row["title"], row["link"]),
-            axis=1
+        df["article_key"] = df["article_key"].where(
+            df["article_key"].notna() & (df["article_key"] != ""),
+            df.apply(lambda row: article_key(row["title"], row["link"]), axis=1)
         )
-        df["is_read"] = df["article_key"].apply(
-            lambda key: key in st.session_state.read_article_keys
-        )
+        df["is_read"] = df["is_read"].fillna(0).astype(bool)
         df = deduplicate_articles(df)
 
         if read_filter == "未読":
@@ -229,10 +283,7 @@ with tab2:
                 with exp_col1:
                     read_here = st.checkbox("既読", value=is_read, key=f"read_{item_id}")
                     if read_here != is_read:
-                        if read_here:
-                            st.session_state.read_article_keys.add(current_article_key)
-                        else:
-                            st.session_state.read_article_keys.discard(current_article_key)
+                        update_article_read_status(current_article_key, read_here)
                         st.rerun()
 
                 with exp_col2:
@@ -243,7 +294,7 @@ with tab2:
                     )
 
                     if show_detail and not is_read:
-                        st.session_state.read_article_keys.add(current_article_key)
+                        update_article_read_status(current_article_key, True)
                         is_read = True
 
                     if show_detail:

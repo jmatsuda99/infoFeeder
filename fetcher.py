@@ -4,6 +4,7 @@ from datetime import datetime
 from urllib.parse import parse_qsl, urlencode, parse_qs, urlparse, urlunparse
 
 import feedparser
+from article_utils import article_key
 
 DB_PATH="data/alerts.db"
 TRACKING_QUERY_KEYS = {
@@ -123,16 +124,23 @@ def fetch_active_feeds():
 
         for e in parsed.entries:
             link = resolve_entry_url(e)
+            current_article_key = article_key(e.get("title",""), link)
+            existing_read = cur.execute(
+                "SELECT MAX(COALESCE(is_read, 0)) FROM items WHERE article_key=?",
+                (current_article_key,)
+            ).fetchone()[0] or 0
             cur.execute("""
             INSERT OR IGNORE INTO items
-            (feed_id,title,link,published,summary,fetched_at)
-            VALUES(?,?,?,?,?,?)
+            (feed_id,title,link,article_key,published,summary,is_read,fetched_at)
+            VALUES(?,?,?,?,?,?,?,?)
             """,(
                 feed_id,
                 e.get("title",""),
                 link,
+                current_article_key,
                 e.get("published",""),
                 e.get("summary",""),
+                existing_read,
                 datetime.now().isoformat(timespec="seconds")
             ))
 

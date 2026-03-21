@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from article_utils import article_key
 
 DB_PATH="data/alerts.db"
 
@@ -32,10 +33,29 @@ def init_db():
         feed_id INTEGER,
         title TEXT,
         link TEXT UNIQUE,
+        article_key TEXT,
         published TEXT,
         summary TEXT,
+        is_read INTEGER DEFAULT 0,
         fetched_at TEXT
     )""")
+
+    item_columns = {row["name"] for row in cur.execute("PRAGMA table_info(items)")}
+    if "article_key" not in item_columns:
+        cur.execute("ALTER TABLE items ADD COLUMN article_key TEXT")
+    if "is_read" not in item_columns:
+        cur.execute("ALTER TABLE items ADD COLUMN is_read INTEGER DEFAULT 0")
+
+    rows_to_backfill = cur.execute("""
+        SELECT id, title, link
+        FROM items
+        WHERE article_key IS NULL OR article_key = ''
+    """).fetchall()
+    for row in rows_to_backfill:
+        cur.execute(
+            "UPDATE items SET article_key=? WHERE id=?",
+            (article_key(row["title"], row["link"]), row["id"])
+        )
 
     conn.commit()
     conn.close()
@@ -91,6 +111,8 @@ def list_articles(keyword=""):
         MAX(i.id) as id,
         MAX(i.published) as published,
         MAX(COALESCE(f.category, '')) as category,
+        MAX(COALESCE(i.article_key, '')) as article_key,
+        MAX(COALESCE(i.is_read, 0)) as is_read,
         i.link as link,
         MAX(i.title) as title,
         MAX(COALESCE(i.summary, '')) as summary
@@ -114,3 +136,14 @@ def list_articles(keyword=""):
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
     return df
+
+
+def update_article_read_status(article_key_value, is_read):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE items SET is_read=? WHERE article_key=?",
+        (1 if is_read else 0, article_key_value)
+    )
+    conn.commit()
+    conn.close()
