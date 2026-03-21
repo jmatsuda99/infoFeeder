@@ -33,6 +33,127 @@ TAB_ARTICLES = "Articles"
 TAB_OPTIONS = [TAB_SOURCE_SETUP, TAB_ARTICLES]
 
 
+def render_app_shell(next_fetch_at):
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background: linear-gradient(180deg, #f4f7fb 0%, #eef2f7 100%);
+        }
+        .block-container {
+            max-width: 1180px;
+            padding-top: 1.8rem;
+            padding-bottom: 2.5rem;
+        }
+        h1, h2, h3 {
+            color: #132238;
+            letter-spacing: -0.01em;
+        }
+        [data-baseweb="tab-list"] {
+            gap: 0.4rem;
+            background: #e8edf4;
+            padding: 0.3rem;
+            border-radius: 0.9rem;
+        }
+        button[data-baseweb="tab"] {
+            background: transparent;
+            border-radius: 0.7rem;
+            color: #425466;
+            font-weight: 600;
+        }
+        button[data-baseweb="tab"][aria-selected="true"] {
+            background: #ffffff;
+            color: #132238;
+            box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+        }
+        div[data-testid="stForm"],
+        div[data-testid="stVerticalBlock"] div[data-testid="stVerticalBlockBorderWrapper"] {
+            border-radius: 16px;
+        }
+        div[data-testid="stForm"] {
+            background: rgba(255, 255, 255, 0.82);
+            border: 1px solid #d9e2ec;
+            padding: 1rem 1rem 0.4rem 1rem;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+        }
+        div[data-testid="stMetric"] {
+            background: rgba(255, 255, 255, 0.82);
+            border: 1px solid #d9e2ec;
+            padding: 0.9rem 1rem;
+            border-radius: 14px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+        }
+        div[data-testid="stMetric"] label {
+            color: #5b6b7d;
+            font-weight: 600;
+        }
+        div[data-testid="stMetricValue"] {
+            color: #132238;
+        }
+        .if-muted {
+            color: #5b6b7d;
+            font-size: 0.95rem;
+        }
+        .if-card-title {
+            color: #132238;
+            font-weight: 700;
+            font-size: 1rem;
+            margin-bottom: 0.2rem;
+        }
+        .if-badge {
+            display: inline-block;
+            padding: 0.18rem 0.55rem;
+            border-radius: 999px;
+            background: #e7eef7;
+            color: #28435c;
+            font-size: 0.76rem;
+            font-weight: 700;
+            margin-right: 0.35rem;
+            margin-bottom: 0.35rem;
+        }
+        .if-badge-muted {
+            background: #eef2f6;
+            color: #526273;
+        }
+        .if-page-intro {
+            background: rgba(255, 255, 255, 0.82);
+            border: 1px solid #d9e2ec;
+            border-radius: 18px;
+            padding: 1rem 1.15rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+        }
+        div[data-testid="stCheckbox"] label,
+        div[data-testid="stToggle"] label {
+            font-weight: 600;
+        }
+        .stButton > button {
+            border-radius: 10px;
+            border: 1px solid #c7d3e0;
+            background: #f8fafc;
+            color: #18324b;
+            font-weight: 600;
+        }
+        .stButton > button[kind="primary"] {
+            background: #23415f;
+            color: #ffffff;
+            border-color: #23415f;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""
+        <div class="if-page-intro">
+            <div class="if-card-title">Google Alerts RSS Viewer</div>
+            <div class="if-muted">Track sources, review unread items, and refresh automatically every 30 minutes. Next scheduled fetch: {next_fetch_at.strftime('%Y-%m-%d %H:%M')}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def get_next_half_hour(now):
     next_half_hour = now.replace(second=0, microsecond=0)
     if now.minute < 30:
@@ -79,12 +200,11 @@ def run_scheduled_fetch():
 
 
 next_auto_fetch_at = run_scheduled_fetch()
+render_app_shell(next_auto_fetch_at)
 schedule_page_refresh()
 
 if st.session_state.get("auto_fetch_message"):
     st.caption(st.session_state["auto_fetch_message"])
-
-st.caption(f"Next auto fetch: {next_auto_fetch_at.strftime('%Y-%m-%d %H:%M')}")
 
 
 def render_copy_button(copy_text, key):
@@ -153,6 +273,18 @@ def sync_selected_tab():
 
 if "selected_tab" not in st.session_state or st.session_state["selected_tab"] not in TAB_OPTIONS:
     st.session_state.selected_tab = TAB_SOURCE_SETUP
+
+
+summary_feeds = list_feeds()
+summary_articles = list_articles("")
+summary_total_sources = len(summary_feeds)
+summary_active_sources = sum(1 for feed in summary_feeds if feed["is_active"])
+summary_unread_articles = 0 if summary_articles.empty else int((summary_articles["is_read"].fillna(0) == 0).sum())
+
+metric_col1, metric_col2, metric_col3 = st.columns(3)
+metric_col1.metric("Active Sources", f"{summary_active_sources}", delta=f"{summary_total_sources} total")
+metric_col2.metric("Unread Articles", f"{summary_unread_articles}")
+metric_col3.metric("Next Fetch", next_auto_fetch_at.strftime("%H:%M"))
 
 
 tab1, tab2 = st.tabs(
@@ -240,6 +372,7 @@ with tab1:
     feeds = list_feeds()
 
     if feeds:
+        st.markdown('<div class="if-muted" style="margin-bottom:0.6rem;">Registered sources</div>', unsafe_allow_html=True)
         for feed in feeds:
             feed_id = feed["id"]
             name = feed["name"] or ""
@@ -249,30 +382,29 @@ with tab1:
             category = feed["category"] or ""
             is_active = feed["is_active"] or 0
 
-            col1, col2, col3 = st.columns([5, 1, 1])
+            with st.container(border=True):
+                col1, col2, col3 = st.columns([5, 1, 1])
 
-            with col1:
-                st.markdown(f"**{name}**")
-                source_label = "RSS" if source_type == "rss" else "HTML"
-                caption_parts = []
-                if category:
-                    caption_parts.append(category)
-                caption_parts.append(source_label)
-                caption_parts.append(base_url)
-                if url != base_url:
-                    caption_parts.append(f"Fetch: {url}")
-                st.caption(" | ".join(caption_parts))
+                with col1:
+                    source_label = "RSS" if source_type == "rss" else "HTML"
+                    badge_html = f'<span class="if-badge">{source_label}</span>'
+                    if category:
+                        badge_html += f'<span class="if-badge if-badge-muted">{category}</span>'
+                    st.markdown(f'<div class="if-card-title">{name}</div>{badge_html}', unsafe_allow_html=True)
+                    st.markdown(f'<div class="if-muted">{base_url}</div>', unsafe_allow_html=True)
+                    if url != base_url:
+                        st.caption(f"Fetch URL: {url}")
 
-            with col2:
-                active = st.checkbox("Active", value=bool(is_active), key=f"active_{feed_id}")
-                if active != bool(is_active):
-                    update_feed_status(feed_id, active)
-                    st.rerun()
+                with col2:
+                    active = st.checkbox("Active", value=bool(is_active), key=f"active_{feed_id}")
+                    if active != bool(is_active):
+                        update_feed_status(feed_id, active)
+                        st.rerun()
 
-            with col3:
-                if st.button("Delete", key=f"delete_{feed_id}"):
-                    delete_feed(feed_id)
-                    st.rerun()
+                with col3:
+                    if st.button("Delete", key=f"delete_{feed_id}"):
+                        delete_feed(feed_id)
+                        st.rerun()
 
 with tab2:
     st.subheader("Articles")
@@ -327,30 +459,36 @@ with tab2:
                 current_article_key = row["article_key"]
                 is_read = bool(row["is_read"])
 
-                exp_col1, exp_col2 = st.columns([1.2, 8])
+                with st.container(border=True):
+                    badge_html = '<span class="if-badge">Read</span>' if is_read else '<span class="if-badge" style="background:#dbeafe;color:#163b63;">Unread</span>'
+                    if row["category"]:
+                        badge_html += f'<span class="if-badge if-badge-muted">{row["category"]}</span>'
+                    st.markdown(badge_html, unsafe_allow_html=True)
+                    exp_col1, exp_col2 = st.columns([1.2, 8])
 
-                with exp_col1:
-                    read_here = st.checkbox("Read", value=is_read, key=f"read_{item_id}")
-                    if read_here != is_read:
-                        update_article_read_status(current_article_key, read_here)
-                        st.rerun()
+                    with exp_col1:
+                        read_here = st.checkbox("Read", value=is_read, key=f"read_{item_id}")
+                        if read_here != is_read:
+                            update_article_read_status(current_article_key, read_here)
+                            st.rerun()
 
-                with exp_col2:
-                    show_detail = st.toggle(
-                        f"{published} | {title}",
-                        value=False,
-                        key=f"show_detail_{item_id}",
-                    )
+                    with exp_col2:
+                        st.markdown(f'<div class="if-card-title">{title}</div>', unsafe_allow_html=True)
+                        if published:
+                            st.markdown(f'<div class="if-muted">{published}</div>', unsafe_allow_html=True)
+                        show_detail = st.toggle(
+                            "Show details",
+                            value=False,
+                            key=f"show_detail_{item_id}",
+                        )
 
-                    if show_detail and not is_read:
-                        update_article_read_status(current_article_key, True)
-                        is_read = True
+                        if show_detail and not is_read:
+                            update_article_read_status(current_article_key, True)
+                            is_read = True
 
-                    if show_detail:
-                        if row["category"]:
-                            st.markdown(f"**Category:** {row['category']}")
-                        if row["link"]:
-                            st.markdown(f"**Link:** {row['link']}")
-                            render_copy_button(text_for_copy(title, link), f"{item_id}")
-                        st.markdown("**Summary**")
-                        st.write(row["summary"] if row["summary"] else "No summary")
+                        if show_detail:
+                            if row["link"]:
+                                st.markdown(f"**Link:** {row['link']}")
+                                render_copy_button(text_for_copy(title, link), f"{item_id}")
+                            st.markdown("**Summary**")
+                            st.write(row["summary"] if row["summary"] else "No summary")
