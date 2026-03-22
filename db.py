@@ -26,6 +26,9 @@ def init_db():
         source_type TEXT DEFAULT 'rss',
         category TEXT,
         is_active INTEGER DEFAULT 1,
+        last_success_at TEXT,
+        last_error_at TEXT,
+        last_error_message TEXT,
         created_at TEXT,
         updated_at TEXT
     )""")
@@ -35,6 +38,12 @@ def init_db():
         cur.execute("ALTER TABLE feeds ADD COLUMN base_url TEXT")
     if "source_type" not in feed_columns:
         cur.execute("ALTER TABLE feeds ADD COLUMN source_type TEXT DEFAULT 'rss'")
+    if "last_success_at" not in feed_columns:
+        cur.execute("ALTER TABLE feeds ADD COLUMN last_success_at TEXT")
+    if "last_error_at" not in feed_columns:
+        cur.execute("ALTER TABLE feeds ADD COLUMN last_error_at TEXT")
+    if "last_error_message" not in feed_columns:
+        cur.execute("ALTER TABLE feeds ADD COLUMN last_error_message TEXT")
     cur.execute("UPDATE feeds SET base_url=COALESCE(base_url, url) WHERE base_url IS NULL OR base_url = ''")
     cur.execute("UPDATE feeds SET source_type='rss' WHERE source_type IS NULL OR source_type = ''")
 
@@ -90,7 +99,16 @@ def add_feed(name,url,category="", source_type="rss", base_url=None):
 def list_feeds():
     conn=get_conn()
     cur=conn.cursor()
-    cur.execute("SELECT * FROM feeds ORDER BY id DESC")
+    cur.execute("""
+        SELECT
+            f.*,
+            COUNT(i.id) AS item_count,
+            MAX(i.fetched_at) AS last_fetched_at
+        FROM feeds f
+        LEFT JOIN items i ON i.feed_id = f.id
+        GROUP BY f.id
+        ORDER BY f.id DESC
+    """)
     rows=cur.fetchall()
     conn.close()
     return rows
@@ -121,6 +139,7 @@ def list_articles(keyword=""):
         MAX(i.id) as id,
         MAX(i.published) as published,
         MAX(COALESCE(f.category, '')) as category,
+        MAX(COALESCE(f.name, '')) as source_name,
         MAX(COALESCE(i.article_key, '')) as article_key,
         MAX(COALESCE(i.is_read, 0)) as is_read,
         i.link as link,
@@ -154,6 +173,22 @@ def update_article_read_status(article_key_value, is_read):
     cur.execute(
         "UPDATE items SET is_read=? WHERE article_key=?",
         (1 if is_read else 0, article_key_value)
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_articles_read_status(article_keys, is_read):
+    keys = [key for key in article_keys if key]
+    if not keys:
+        return
+
+    conn = get_conn()
+    cur = conn.cursor()
+    placeholders = ",".join(["?"] * len(keys))
+    cur.execute(
+        f"UPDATE items SET is_read=? WHERE article_key IN ({placeholders})",
+        [1 if is_read else 0, *keys]
     )
     conn.commit()
     conn.close()

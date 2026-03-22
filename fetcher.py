@@ -256,6 +256,28 @@ def insert_item(cur, feed_id, title, link, published, summary):
     ))
     return cur.rowcount > 0
 
+
+def update_feed_fetch_status(cur, feed_id, *, success, error_message=""):
+    now = datetime.now().isoformat(timespec="seconds")
+    if success:
+        cur.execute(
+            """
+            UPDATE feeds
+            SET last_success_at=?, last_error_at=NULL, last_error_message='', updated_at=?
+            WHERE id=?
+            """,
+            (now, now, feed_id),
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE feeds
+            SET last_error_at=?, last_error_message=?, updated_at=?
+            WHERE id=?
+            """,
+            (now, error_message[:500], now, feed_id),
+        )
+
 def fetch_active_feeds():
     conn=sqlite3.connect(DB_PATH)
     cur=conn.cursor()
@@ -266,26 +288,33 @@ def fetch_active_feeds():
     inserted=0
 
     for feed_id,url,source_type in feeds:
-        if source_type == "html_listing":
-            entries = extract_html_listing_entries(url)
-            for entry in entries:
-                if insert_item(cur, feed_id, entry["title"], entry["link"], entry["published"], entry["summary"]):
+        try:
+            if source_type == "html_listing":
+                entries = extract_html_listing_entries(url)
+                for entry in entries:
+                    if insert_item(cur, feed_id, entry["title"], entry["link"], entry["published"], entry["summary"]):
+                        inserted += 1
+                update_feed_fetch_status(cur, feed_id, success=True)
+                continue
+
+            parsed=feedparser.parse(url)
+            if getattr(parsed, "bozo", False) and not parsed.entries:
+                raise ValueError(str(getattr(parsed, "bozo_exception", "Feed parsing failed")))
+
+            for e in parsed.entries:
+                link = resolve_entry_url(e)
+                if insert_item(
+                    cur,
+                    feed_id,
+                    e.get("title",""),
+                    link,
+                    e.get("published",""),
+                    e.get("summary","")
+                ):
                     inserted += 1
-            continue
-
-        parsed=feedparser.parse(url)
-
-        for e in parsed.entries:
-            link = resolve_entry_url(e)
-            if insert_item(
-                cur,
-                feed_id,
-                e.get("title",""),
-                link,
-                e.get("published",""),
-                e.get("summary","")
-            ):
-                inserted += 1
+            update_feed_fetch_status(cur, feed_id, success=True)
+        except Exception as error:
+            update_feed_fetch_status(cur, feed_id, success=False, error_message=str(error))
 
     conn.commit()
     conn.close()

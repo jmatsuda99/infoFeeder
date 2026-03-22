@@ -1,5 +1,7 @@
 import json
 from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -18,6 +20,7 @@ from db import (
     list_articles,
     list_feeds,
     update_article_read_status,
+    update_articles_read_status,
     update_feed_status,
 )
 from fetcher import discover_feed_source, fetch_active_feeds
@@ -28,9 +31,10 @@ st.title("Google Alerts RSS Viewer")
 
 init_db()
 
-TAB_SOURCE_SETUP = "Source Setup"
-TAB_ARTICLES = "Articles"
+TAB_SOURCE_SETUP = "ソース設定"
+TAB_ARTICLES = "記事一覧"
 TAB_OPTIONS = [TAB_SOURCE_SETUP, TAB_ARTICLES]
+JST = ZoneInfo("Asia/Tokyo")
 
 
 def render_app_shell(next_fetch_at):
@@ -115,11 +119,30 @@ def render_app_shell(next_fetch_at):
             background: #eef2f6;
             color: #526273;
         }
+        .if-meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.9rem;
+            margin-top: 0.45rem;
+        }
+        .if-meta-item {
+            color: #526273;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
         .if-page-intro {
             background: rgba(255, 255, 255, 0.82);
             border: 1px solid #d9e2ec;
             border-radius: 18px;
             padding: 1rem 1.15rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+        }
+        .if-control-panel {
+            background: rgba(255, 255, 255, 0.82);
+            border: 1px solid #d9e2ec;
+            border-radius: 16px;
+            padding: 1rem 1rem 0.25rem 1rem;
             margin-bottom: 1rem;
             box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
         }
@@ -147,11 +170,56 @@ def render_app_shell(next_fetch_at):
         f"""
         <div class="if-page-intro">
             <div class="if-card-title">Google Alerts RSS Viewer</div>
-            <div class="if-muted">Track sources, review unread items, and refresh automatically every 30 minutes. Next scheduled fetch: {next_fetch_at.strftime('%Y-%m-%d %H:%M')}</div>
+            <div class="if-muted">ソースを管理し、未読記事を確認し、30分ごとに自動更新します。次回取得予定: {format_jst_datetime(next_fetch_at, include_date=True)}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def format_jst_datetime(value, include_date=False):
+    dt = None
+
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                dt = parsedate_to_datetime(value)
+            except (TypeError, ValueError):
+                return value
+
+    if dt is None:
+        return ""
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=JST)
+    else:
+        dt = dt.astimezone(JST)
+
+    if include_date:
+        return dt.strftime("%Y-%m-%d %H:%M JST")
+    return dt.strftime("%Y-%m-%d %H:%M:%S JST")
+
+
+def format_jst_time(value):
+    dt = None
+
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        formatted = format_jst_datetime(value)
+        if not formatted:
+            return ""
+        return formatted.split(" ")[1]
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=JST)
+    else:
+        dt = dt.astimezone(JST)
+    return dt.strftime("%H:%M")
 
 
 def get_next_half_hour(now):
@@ -188,7 +256,7 @@ def run_scheduled_fetch():
         count = fetch_active_feeds()
         st.session_state.last_auto_fetch_slot = current_slot
         st.session_state.auto_fetch_message = (
-            f"Auto-fetched {count} new articles at {now.strftime('%Y-%m-%d %H:%M:%S')}."
+            f"{format_jst_datetime(now)} に {count} 件の新着記事を自動取得しました。"
         )
 
     if not current_slot and st.session_state.get("last_auto_fetch_slot"):
@@ -197,14 +265,6 @@ def run_scheduled_fetch():
             st.session_state.last_auto_fetch_slot = None
 
     return get_next_half_hour(now)
-
-
-next_auto_fetch_at = run_scheduled_fetch()
-render_app_shell(next_auto_fetch_at)
-schedule_page_refresh()
-
-if st.session_state.get("auto_fetch_message"):
-    st.caption(st.session_state["auto_fetch_message"])
 
 
 def render_copy_button(copy_text, key):
@@ -218,7 +278,7 @@ def render_copy_button(copy_text, key):
         padding:0.35rem 0.75rem;
         cursor:pointer;
         font-size:0.9rem;
-    ">Copy</button>
+    ">コピー</button>
     <script>
     const button = document.getElementById("{button_id}");
     if (button) {{
@@ -226,10 +286,10 @@ def render_copy_button(copy_text, key):
             try {{
                 await navigator.clipboard.writeText({payload});
                 const original = button.innerText;
-                button.innerText = "Copied";
+                button.innerText = "コピー済み";
                 setTimeout(() => button.innerText = original, 1200);
             }} catch (error) {{
-                button.innerText = "Failed";
+                button.innerText = "失敗";
             }}
         }};
     }}
@@ -269,10 +329,27 @@ def sync_selected_tab():
     selected_tab = st.session_state.get("main_tabs", TAB_SOURCE_SETUP)
     if selected_tab in TAB_OPTIONS:
         st.session_state.selected_tab = selected_tab
+        st.query_params["tab"] = selected_tab
 
+
+next_auto_fetch_at = run_scheduled_fetch()
+render_app_shell(next_auto_fetch_at)
+schedule_page_refresh()
+
+if st.session_state.get("auto_fetch_message"):
+    st.caption(st.session_state["auto_fetch_message"])
+
+
+query_tab = st.query_params.get("tab", TAB_SOURCE_SETUP)
+if query_tab not in TAB_OPTIONS:
+    query_tab = TAB_SOURCE_SETUP
 
 if "selected_tab" not in st.session_state or st.session_state["selected_tab"] not in TAB_OPTIONS:
-    st.session_state.selected_tab = TAB_SOURCE_SETUP
+    st.session_state.selected_tab = query_tab
+elif st.session_state["selected_tab"] != query_tab:
+    st.session_state.selected_tab = query_tab
+
+st.query_params["tab"] = st.session_state["selected_tab"]
 
 
 summary_feeds = list_feeds()
@@ -282,9 +359,9 @@ summary_active_sources = sum(1 for feed in summary_feeds if feed["is_active"])
 summary_unread_articles = 0 if summary_articles.empty else int((summary_articles["is_read"].fillna(0) == 0).sum())
 
 metric_col1, metric_col2, metric_col3 = st.columns(3)
-metric_col1.metric("Active Sources", f"{summary_active_sources}", delta=f"{summary_total_sources} total")
-metric_col2.metric("Unread Articles", f"{summary_unread_articles}")
-metric_col3.metric("Next Fetch", next_auto_fetch_at.strftime("%H:%M"))
+metric_col1.metric("有効ソース", f"{summary_active_sources}", delta=f"全 {summary_total_sources} 件")
+metric_col2.metric("未読記事", f"{summary_unread_articles}")
+metric_col3.metric("次回取得", format_jst_time(next_auto_fetch_at))
 
 
 tab1, tab2 = st.tabs(
@@ -295,18 +372,18 @@ tab1, tab2 = st.tabs(
 )
 
 with tab1:
-    st.subheader("Register Source URL")
-    st.caption("Enter a base URL. The app will automatically choose RSS/Atom when available and otherwise fall back to HTML listing.")
+    st.subheader("ソースURL登録")
+    st.caption("ベースURLを入力すると、RSS/Atom を優先して自動判定し、見つからない場合は HTML listing として登録します。")
 
     with st.form("add_feed_form"):
-        name = st.text_input("Name")
-        url = st.text_input("Base URL")
-        category = st.text_input("Category")
-        submitted = st.form_submit_button("Add")
+        name = st.text_input("名前")
+        url = st.text_input("ベースURL")
+        category = st.text_input("カテゴリ")
+        submitted = st.form_submit_button("追加")
 
         if submitted:
             if not name.strip() or not url.strip():
-                st.error("Please enter both name and base URL.")
+                st.error("名前とベースURLを入力してください。")
             else:
                 try:
                     created, detected = add_source_from_base_url(
@@ -315,29 +392,29 @@ with tab1:
                         category.strip(),
                     )
                 except Exception as error:
-                    st.error(f"Failed to inspect URL: {error}")
+                    st.error(f"URL の確認に失敗しました: {error}")
                 else:
                     if created:
                         detected_type_label = "RSS" if detected["source_type"] == "rss" else "HTML listing"
-                        st.success(f"Added as {detected_type_label}.")
-                        st.caption(f"Base URL: {detected['base_url']}")
-                        st.caption(f"Fetch URL: {detected['fetch_url']}")
+                        st.success(f"{detected_type_label} として追加しました。")
+                        st.caption(f"ベースURL: {detected['base_url']}")
+                        st.caption(f"取得URL: {detected['fetch_url']}")
                         st.caption(detected["detail"])
                         st.rerun()
                     else:
-                        st.warning("That source is already registered.")
+                        st.warning("そのソースはすでに登録されています。")
 
-    st.caption("Google Alerts RSS URLs can still be pasted in bulk below.")
-    st.info("Paste one Google Alerts RSS URL per line.")
+    st.caption("Google Alerts の RSS URL は下の一括登録からそのまま追加できます。")
+    st.info("Google Alerts の RSS URL を 1 行に 1 件ずつ貼り付けてください。")
 
     with st.form("bulk_google_alert_form"):
-        bulk_name_prefix = st.text_input("Bulk name prefix", value="Google Alert")
-        bulk_category = st.text_input("Bulk category", key="bulk_category")
+        bulk_name_prefix = st.text_input("一括登録名プレフィックス", value="Google Alert")
+        bulk_category = st.text_input("一括登録カテゴリ", key="bulk_category")
         bulk_urls = st.text_area(
-            "Google Alerts RSS URLs",
-            help="Paste the RSS links from the Google Alerts management page, one per line.",
+            "Google Alerts RSS URL 一覧",
+            help="Google Alerts 管理画面の RSS リンクを 1 行に 1 件ずつ貼り付けてください。",
         )
-        bulk_submitted = st.form_submit_button("Add Google Alerts RSS URLs")
+        bulk_submitted = st.form_submit_button("Google Alerts RSS を追加")
 
         if bulk_submitted:
             urls = parse_google_alert_urls(bulk_urls)
@@ -345,7 +422,7 @@ with tab1:
             duplicate_count = len(urls) - len(deduped_urls)
 
             if not deduped_urls:
-                st.error("No RSS URLs were found in the pasted text.")
+                st.error("貼り付けた内容から RSS URL を見つけられませんでした。")
             else:
                 added_count, skipped_count = add_urls_as_feeds(
                     deduped_urls,
@@ -353,26 +430,26 @@ with tab1:
                     bulk_category.strip(),
                 )
 
-                st.info(f"Parsed {len(urls)} URLs, using {len(deduped_urls)} unique URLs.")
+                st.info(f"{len(urls)} 件を解析し、そのうち {len(deduped_urls)} 件のユニーク URL を使用します。")
                 if duplicate_count:
-                    st.info(f"Ignored {duplicate_count} duplicate URLs in the pasted list.")
+                    st.info(f"重複していた {duplicate_count} 件は無視しました。")
                 if added_count:
-                    st.success(f"Added {added_count} RSS feeds.")
+                    st.success(f"{added_count} 件の RSS を追加しました。")
                 if skipped_count:
-                    st.info(f"Skipped {skipped_count} URLs because they were already registered.")
+                    st.info(f"{skipped_count} 件は登録済みのため追加しませんでした。")
                 if added_count:
                     st.rerun()
 
     st.divider()
 
-    if st.button("Fetch Sources Now"):
+    if st.button("いま取得する"):
         count = fetch_active_feeds()
-        st.success(f"Fetched {count} new articles.")
+        st.success(f"{count} 件の新着記事を取得しました。")
 
     feeds = list_feeds()
 
     if feeds:
-        st.markdown('<div class="if-muted" style="margin-bottom:0.6rem;">Registered sources</div>', unsafe_allow_html=True)
+        st.markdown('<div class="if-muted" style="margin-bottom:0.6rem;">登録済みソース</div>', unsafe_allow_html=True)
         for feed in feeds:
             feed_id = feed["id"]
             name = feed["name"] or ""
@@ -381,6 +458,11 @@ with tab1:
             source_type = feed["source_type"] or "rss"
             category = feed["category"] or ""
             is_active = feed["is_active"] or 0
+            item_count = int(feed["item_count"] or 0)
+            last_fetched_at = format_jst_datetime(feed["last_fetched_at"]) if feed["last_fetched_at"] else "未取得"
+            last_success_at = format_jst_datetime(feed["last_success_at"]) if feed["last_success_at"] else "未成功"
+            last_error_at = format_jst_datetime(feed["last_error_at"]) if feed["last_error_at"] else ""
+            last_error_message = feed["last_error_message"] or ""
 
             with st.container(border=True):
                 col1, col2, col3 = st.columns([5, 1, 1])
@@ -393,41 +475,59 @@ with tab1:
                     st.markdown(f'<div class="if-card-title">{name}</div>{badge_html}', unsafe_allow_html=True)
                     st.markdown(f'<div class="if-muted">{base_url}</div>', unsafe_allow_html=True)
                     if url != base_url:
-                        st.caption(f"Fetch URL: {url}")
+                        st.caption(f"取得URL: {url}")
+                    st.markdown(
+                        f"""
+                        <div class="if-meta-row">
+                            <div class="if-meta-item">記事数: {item_count}</div>
+                            <div class="if-meta-item">最終取得: {last_fetched_at}</div>
+                            <div class="if-meta-item">最終成功: {last_success_at}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    if last_error_at:
+                        st.warning(f"最終失敗: {last_error_at} | {last_error_message}")
 
                 with col2:
-                    active = st.checkbox("Active", value=bool(is_active), key=f"active_{feed_id}")
+                    active = st.checkbox("有効", value=bool(is_active), key=f"active_{feed_id}")
                     if active != bool(is_active):
                         update_feed_status(feed_id, active)
                         st.rerun()
 
                 with col3:
-                    if st.button("Delete", key=f"delete_{feed_id}"):
+                    if st.button("削除", key=f"delete_{feed_id}"):
                         delete_feed(feed_id)
                         st.rerun()
 
 with tab2:
-    st.subheader("Articles")
+    st.subheader("記事一覧")
 
-    col1, col2, col3 = st.columns([3, 1, 1.2])
+    with st.container(border=True):
+        st.markdown('<div class="if-muted" style="margin-bottom:0.6rem;">表示条件</div>', unsafe_allow_html=True)
+        col1, col2, col3, col4 = st.columns([3.2, 1.2, 1.4, 1.3])
 
-    with col1:
-        keyword = st.text_input("Keyword")
+        with col1:
+            keyword = st.text_input("キーワード")
 
-    with col2:
-        detail_count = st.number_input("Visible count", min_value=1, max_value=100, value=100)
+        with col2:
+            detail_count = st.number_input("表示件数", min_value=1, max_value=100, value=100)
 
-    with col3:
-        read_filter = st.selectbox("Filter", ["Unread", "Read", "All"], index=0)
+        with col3:
+            read_filter = st.selectbox("表示", ["未読", "既読", "すべて"], index=0)
 
-    if st.button("Fetch RSS", key="fetch_articles_tab"):
+        with col4:
+            st.markdown("<div style='height:1.85rem;'></div>", unsafe_allow_html=True)
+            fetch_now = st.button("RSS取得", key="fetch_articles_tab")
+
+    if fetch_now:
         count = fetch_active_feeds()
-        st.success(f"Fetched {count} new articles")
+        st.success(f"{count} 件の新着記事を取得しました。")
 
     df = list_articles(keyword)
 
     if df.empty:
-        st.info("No articles found.")
+        st.info("記事がありません。")
     else:
         df["article_key"] = df["article_key"].where(
             df["article_key"].notna() & (df["article_key"] != ""),
@@ -436,48 +536,60 @@ with tab2:
         df["is_read"] = df["is_read"].fillna(0).astype(bool)
         df = deduplicate_articles(df)
 
-        if read_filter == "Unread":
+        if read_filter == "未読":
             filtered_df = df[df["is_read"] == False].copy()
-        elif read_filter == "Read":
+        elif read_filter == "既読":
             filtered_df = df[df["is_read"] == True].copy()
         else:
             filtered_df = df.copy()
 
         st.divider()
-        st.subheader(f"Latest {detail_count} articles")
+        st.subheader(f"最新 {detail_count} 件")
 
         visible_df = filtered_df.sort_values(by="published", ascending=False).head(detail_count)
 
         if visible_df.empty:
-            st.info("No articles match the current filter.")
+            st.info("条件に合う記事がありません。")
         else:
+            unread_visible_keys = visible_df.loc[visible_df["is_read"] == False, "article_key"].dropna().tolist()
+            if unread_visible_keys:
+                action_col1, action_col2 = st.columns([2, 6])
+                with action_col1:
+                    if st.button("表示中をすべて既読", key="mark_visible_read"):
+                        update_articles_read_status(unread_visible_keys, True)
+                        st.rerun()
+
             for _, row in visible_df.iterrows():
                 title = row["title"] if row["title"] else "(no title)"
                 published = row["published"] if row["published"] else ""
+                published_display = format_jst_datetime(published)
                 link = row["link"] if row["link"] else ""
+                source_name = row["source_name"] if row["source_name"] else ""
                 item_id = int(row["id"])
                 current_article_key = row["article_key"]
                 is_read = bool(row["is_read"])
 
                 with st.container(border=True):
-                    badge_html = '<span class="if-badge">Read</span>' if is_read else '<span class="if-badge" style="background:#dbeafe;color:#163b63;">Unread</span>'
+                    badge_html = '<span class="if-badge">既読</span>' if is_read else '<span class="if-badge" style="background:#dbeafe;color:#163b63;">未読</span>'
+                    if source_name:
+                        badge_html += f'<span class="if-badge if-badge-muted">{source_name}</span>'
                     if row["category"]:
                         badge_html += f'<span class="if-badge if-badge-muted">{row["category"]}</span>'
                     st.markdown(badge_html, unsafe_allow_html=True)
                     exp_col1, exp_col2 = st.columns([1.2, 8])
 
                     with exp_col1:
-                        read_here = st.checkbox("Read", value=is_read, key=f"read_{item_id}")
+                        read_here = st.toggle("既読", value=is_read, key=f"read_{item_id}")
                         if read_here != is_read:
                             update_article_read_status(current_article_key, read_here)
                             st.rerun()
 
                     with exp_col2:
                         st.markdown(f'<div class="if-card-title">{title}</div>', unsafe_allow_html=True)
-                        if published:
-                            st.markdown(f'<div class="if-muted">{published}</div>', unsafe_allow_html=True)
+                        if published_display:
+                            st.markdown(f'<div class="if-muted">{published_display}</div>', unsafe_allow_html=True)
                         show_detail = st.toggle(
-                            "Show details",
+                            "詳細を表示",
                             value=False,
                             key=f"show_detail_{item_id}",
                         )
@@ -488,7 +600,10 @@ with tab2:
 
                         if show_detail:
                             if row["link"]:
-                                st.markdown(f"**Link:** {row['link']}")
-                                render_copy_button(text_for_copy(title, link), f"{item_id}")
-                            st.markdown("**Summary**")
-                            st.write(row["summary"] if row["summary"] else "No summary")
+                                link_col, copy_col = st.columns([6.5, 1.5])
+                                with link_col:
+                                    st.markdown(f"**リンク:** {row['link']}")
+                                with copy_col:
+                                    render_copy_button(text_for_copy(title, link), f"{item_id}")
+                            st.markdown("**要約**")
+                            st.write(row["summary"] if row["summary"] else "要約なし")
