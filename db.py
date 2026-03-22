@@ -56,6 +56,8 @@ def init_db():
         published TEXT,
         summary TEXT,
         is_read INTEGER DEFAULT 0,
+        is_saved INTEGER DEFAULT 0,
+        saved_at TEXT,
         fetched_at TEXT
     )""")
 
@@ -64,6 +66,10 @@ def init_db():
         cur.execute("ALTER TABLE items ADD COLUMN article_key TEXT")
     if "is_read" not in item_columns:
         cur.execute("ALTER TABLE items ADD COLUMN is_read INTEGER DEFAULT 0")
+    if "is_saved" not in item_columns:
+        cur.execute("ALTER TABLE items ADD COLUMN is_saved INTEGER DEFAULT 0")
+    if "saved_at" not in item_columns:
+        cur.execute("ALTER TABLE items ADD COLUMN saved_at TEXT")
 
     rows_to_backfill = cur.execute("""
         SELECT id, title, link
@@ -142,6 +148,8 @@ def list_articles(keyword=""):
         MAX(COALESCE(f.name, '')) as source_name,
         MAX(COALESCE(i.article_key, '')) as article_key,
         MAX(COALESCE(i.is_read, 0)) as is_read,
+        MAX(COALESCE(i.is_saved, 0)) as is_saved,
+        MAX(COALESCE(i.saved_at, '')) as saved_at,
         i.link as link,
         MAX(i.title) as title,
         MAX(COALESCE(i.summary, '')) as summary
@@ -173,6 +181,18 @@ def update_article_read_status(article_key_value, is_read):
     cur.execute(
         "UPDATE items SET is_read=? WHERE article_key=?",
         (1 if is_read else 0, article_key_value)
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_article_saved_status(article_key_value, is_saved):
+    conn = get_conn()
+    cur = conn.cursor()
+    now = datetime.now().isoformat(timespec="seconds")
+    cur.execute(
+        "UPDATE items SET is_saved=?, saved_at=? WHERE article_key=?",
+        (1 if is_saved else 0, now if is_saved else None, article_key_value)
     )
     conn.commit()
     conn.close()

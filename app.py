@@ -20,6 +20,7 @@ from db import (
     list_articles,
     list_feeds,
     update_article_read_status,
+    update_article_saved_status,
     update_articles_read_status,
     update_feed_status,
 )
@@ -517,7 +518,8 @@ with tab2:
             read_filter = st.selectbox("表示", ["未読", "既読", "すべて"], index=0)
 
         with col4:
-            st.markdown("<div style='height:1.85rem;'></div>", unsafe_allow_html=True)
+            sort_order = st.selectbox("並び順", ["新しい順", "保存記事を先頭"], index=0)
+            st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
             fetch_now = st.button("RSS取得", key="fetch_articles_tab")
 
     if fetch_now:
@@ -534,6 +536,7 @@ with tab2:
             df.apply(lambda row: article_key(row["title"], row["link"]), axis=1),
         )
         df["is_read"] = df["is_read"].fillna(0).astype(bool)
+        df["is_saved"] = df["is_saved"].fillna(0).astype(bool)
         df = deduplicate_articles(df)
 
         if read_filter == "未読":
@@ -546,7 +549,10 @@ with tab2:
         st.divider()
         st.subheader(f"最新 {detail_count} 件")
 
-        visible_df = filtered_df.sort_values(by="published", ascending=False).head(detail_count)
+        if sort_order == "保存記事を先頭":
+            visible_df = filtered_df.sort_values(by=["is_saved", "published"], ascending=[False, False]).head(detail_count)
+        else:
+            visible_df = filtered_df.sort_values(by="published", ascending=False).head(detail_count)
 
         if visible_df.empty:
             st.info("条件に合う記事がありません。")
@@ -568,9 +574,12 @@ with tab2:
                 item_id = int(row["id"])
                 current_article_key = row["article_key"]
                 is_read = bool(row["is_read"])
+                is_saved = bool(row["is_saved"])
 
                 with st.container(border=True):
                     badge_html = '<span class="if-badge">既読</span>' if is_read else '<span class="if-badge" style="background:#dbeafe;color:#163b63;">未読</span>'
+                    if is_saved:
+                        badge_html += '<span class="if-badge" style="background:#efe7c8;color:#6a5310;">保存</span>'
                     if source_name:
                         badge_html += f'<span class="if-badge if-badge-muted">{source_name}</span>'
                     if row["category"]:
@@ -582,6 +591,10 @@ with tab2:
                         read_here = st.toggle("既読", value=is_read, key=f"read_{item_id}")
                         if read_here != is_read:
                             update_article_read_status(current_article_key, read_here)
+                            st.rerun()
+                        saved_here = st.toggle("保存", value=is_saved, key=f"save_{item_id}")
+                        if saved_here != is_saved:
+                            update_article_saved_status(current_article_key, saved_here)
                             st.rerun()
 
                     with exp_col2:
