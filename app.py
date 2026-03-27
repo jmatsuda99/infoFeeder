@@ -35,6 +35,8 @@ init_db()
 TAB_SOURCE_SETUP = "ソース設定"
 TAB_ARTICLES = "記事一覧"
 TAB_OPTIONS = [TAB_SOURCE_SETUP, TAB_ARTICLES]
+READ_FILTER_OPTIONS = ["未読", "既読", "すべて"]
+SORT_ORDER_OPTIONS = ["新しい順", "古い順", "保存記事を先頭"]
 JST = ZoneInfo("Asia/Tokyo")
 
 
@@ -333,6 +335,27 @@ def sync_selected_tab():
         st.query_params["tab"] = selected_tab
 
 
+def get_query_param(name, default=""):
+    value = st.query_params.get(name, default)
+    if isinstance(value, list):
+        return value[0] if value else default
+    return value
+
+
+def get_int_query_param(name, default, min_value=None, max_value=None):
+    value = get_query_param(name, default)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+
+    if min_value is not None:
+        parsed = max(min_value, parsed)
+    if max_value is not None:
+        parsed = min(max_value, parsed)
+    return parsed
+
+
 next_auto_fetch_at = run_scheduled_fetch()
 render_app_shell(next_auto_fetch_at)
 schedule_page_refresh()
@@ -351,6 +374,24 @@ elif st.session_state["selected_tab"] != query_tab:
     st.session_state.selected_tab = query_tab
 
 st.query_params["tab"] = st.session_state["selected_tab"]
+
+if "article_keyword" not in st.session_state:
+    st.session_state.article_keyword = get_query_param("keyword", "")
+
+if "article_detail_count" not in st.session_state:
+    st.session_state.article_detail_count = get_int_query_param("count", 100, min_value=1, max_value=100)
+
+if "article_read_filter" not in st.session_state:
+    initial_read_filter = get_query_param("read", READ_FILTER_OPTIONS[0])
+    st.session_state.article_read_filter = (
+        initial_read_filter if initial_read_filter in READ_FILTER_OPTIONS else READ_FILTER_OPTIONS[0]
+    )
+
+if "article_sort_order" not in st.session_state:
+    initial_sort_order = get_query_param("sort", SORT_ORDER_OPTIONS[0])
+    st.session_state.article_sort_order = (
+        initial_sort_order if initial_sort_order in SORT_ORDER_OPTIONS else SORT_ORDER_OPTIONS[0]
+    )
 
 
 summary_feeds = list_feeds()
@@ -509,18 +550,23 @@ with tab2:
         col1, col2, col3, col4 = st.columns([3.2, 1.2, 1.4, 1.3])
 
         with col1:
-            keyword = st.text_input("キーワード")
+            keyword = st.text_input("キーワード", key="article_keyword")
 
         with col2:
-            detail_count = st.number_input("表示件数", min_value=1, max_value=100, value=100)
+            detail_count = st.number_input("表示件数", min_value=1, max_value=100, key="article_detail_count")
 
         with col3:
-            read_filter = st.selectbox("表示", ["未読", "既読", "すべて"], index=0)
+            read_filter = st.selectbox("表示", READ_FILTER_OPTIONS, key="article_read_filter")
 
         with col4:
-            sort_order = st.selectbox("並び順", ["新しい順", "古い順", "保存記事を先頭"], index=0)
+            sort_order = st.selectbox("並び順", SORT_ORDER_OPTIONS, key="article_sort_order")
             st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
             fetch_now = st.button("RSS取得", key="fetch_articles_tab")
+
+    st.query_params["keyword"] = keyword
+    st.query_params["count"] = str(detail_count)
+    st.query_params["read"] = read_filter
+    st.query_params["sort"] = sort_order
 
     if fetch_now:
         count = fetch_active_feeds()
