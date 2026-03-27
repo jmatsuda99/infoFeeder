@@ -15,6 +15,6 @@ if not exist "app.py" (
     exit /b 1
 )
 
-start "" ".venv\Scripts\python.exe" -m streamlit run app.py
+start "" ".venv\Scripts\python.exe" -m streamlit run app.py --server.port 8502
 
 endlocal

@@ -518,7 +518,7 @@ with tab2:
             read_filter = st.selectbox("表示", ["未読", "既読", "すべて"], index=0)
 
         with col4:
-            sort_order = st.selectbox("並び順", ["新しい順", "保存記事を先頭"], index=0)
+            sort_order = st.selectbox("並び順", ["新しい順", "古い順", "保存記事を先頭"], index=0)
             st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
             fetch_now = st.button("RSS取得", key="fetch_articles_tab")
 
@@ -551,6 +551,8 @@ with tab2:
 
         if sort_order == "保存記事を先頭":
             visible_df = filtered_df.sort_values(by=["is_saved", "published"], ascending=[False, False]).head(detail_count)
+        elif sort_order == "古い順":
+            visible_df = filtered_df.sort_values(by="published", ascending=True).head(detail_count)
         else:
             visible_df = filtered_df.sort_values(by="published", ascending=False).head(detail_count)
 
