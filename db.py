@@ -6,12 +6,14 @@ from pathlib import Path
 
 import pandas as pd
 from article_utils import article_key
+from exclusion_rules import resolve_excluded_domain_keywords
 
 DB_PATH="data/alerts.db"
 DB_TIMEOUT_SECONDS = 30
 DB_BUSY_TIMEOUT_MS = DB_TIMEOUT_SECONDS * 1000
 DB_RETRY_ATTEMPTS = 5
 DB_RETRY_DELAY_SECONDS = 0.4
+EXCLUDED_DOMAIN_KEYWORDS = resolve_excluded_domain_keywords()
 
 
 def configure_conn(conn):
@@ -227,9 +229,9 @@ def list_articles(keyword=""):
         like = f"%{keyword}%"
         params.extend([like, like])
 
-    query += " AND LOWER(COALESCE(i.link, '')) NOT LIKE ?"
-    query += " AND LOWER(COALESCE(i.link, '')) NOT LIKE ?"
-    params.extend(["%pando%", "%nishinippon%"])
+    for excluded_keyword in EXCLUDED_DOMAIN_KEYWORDS:
+        query += " AND LOWER(COALESCE(i.link, '')) NOT LIKE ?"
+        params.append(f"%{excluded_keyword}%")
 
     query += """
     GROUP BY i.link
