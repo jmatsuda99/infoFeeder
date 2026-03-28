@@ -9,12 +9,12 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-if not exist "app.py" (
-    echo app.py was not found in %cd%
+if not exist "launcher.py" (
+    echo launcher.py was not found in %cd%
     pause
     exit /b 1
 )
 
-"%~dp0.venv\Scripts\python.exe" -m streamlit run "%~dp0app.py" --server.port 8502 --server.headless true
+"%~dp0.venv\Scripts\python.exe" "%~dp0launcher.py" open
 
 endlocal
