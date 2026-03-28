@@ -142,6 +142,16 @@ def init_db():
                     (article_key(row["title"], row["link"]), row["id"])
                 )
 
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_state(
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at TEXT
+                )
+                """
+            )
+
             conn.commit()
         finally:
             conn.close()
@@ -270,6 +280,41 @@ def get_excluded_domain_names():
 
 def get_excluded_domain_keywords():
     return resolve_excluded_domain_keywords(get_excluded_domain_names())
+
+
+def get_app_state(key, default_value=""):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM app_state WHERE key=?", (key,))
+    row = cur.fetchone()
+    conn.close()
+    if row is None:
+        return default_value
+    return row["value"]
+
+
+def set_app_state(key, value):
+    now = datetime.now().isoformat(timespec="seconds")
+
+    def _set_app_state():
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO app_state(key, value, updated_at)
+                VALUES(?,?,?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value,
+                    updated_at=excluded.updated_at
+                """,
+                (key, str(value), now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    run_with_retry(_set_app_state)
 
 
 def list_articles(keyword=""):

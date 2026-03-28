@@ -9,7 +9,7 @@ from urllib.request import Request, urlopen
 
 import feedparser
 from article_utils import article_key
-from db import get_conn, get_excluded_domain_keywords
+from db import get_conn, get_excluded_domain_keywords, set_app_state
 from exclusion_rules import is_excluded_domain_url_by_keywords
 TRACKING_QUERY_KEYS = {
     "utm_source",
@@ -355,6 +355,7 @@ def fetch_active_feeds():
                 update_feed_fetch_status(cur, feed_id, success=False, error_message=str(error))
 
         conn.commit()
+        set_app_state("last_fetch_inserted_count", inserted)
         return inserted
     finally:
         conn.close()
