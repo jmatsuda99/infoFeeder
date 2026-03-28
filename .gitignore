@@ -1,9 +1,14 @@
+# Local runtime environment
 .venv/
 __pycache__/
 *.py[cod]
+
+# Local app state
 data/*.db
 data/*.db-wal
 data/*.db-shm
 data/fetch.lock
+
+# Local logs
 streamlit.out.log
 streamlit.err.log
