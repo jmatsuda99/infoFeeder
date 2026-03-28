@@ -26,9 +26,6 @@ STDOUT_LOG = ROOT_DIR / "streamlit.out.log"
 STDERR_LOG = ROOT_DIR / "streamlit.err.log"
 WAIT_TIMEOUT_SECONDS = 30
 WAIT_INTERVAL_SECONDS = 0.5
-POWERSHELL_EXE = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
-
-
 def ensure_environment():
     if not PYTHON_EXE.exists():
         raise FileNotFoundError("Python virtual environment was not found at .venv\\Scripts\\python.exe")
@@ -66,55 +63,6 @@ def get_listening_pid():
             except ValueError:
                 return None
     return None
-
-
-def get_process_details(pid):
-    if not pid or not sys.platform.startswith("win"):
-        return None
-
-    command = (
-        f"$p = Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\"; "
-        "if ($p) { "
-        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-        "Write-Output ($p.ExecutablePath); "
-        "Write-Output ($p.CommandLine) }"
-    )
-    try:
-        completed = subprocess.run(
-            [POWERSHELL_EXE, "-NoProfile", "-Command", command],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return None
-
-    lines = [line.strip() for line in completed.stdout.splitlines()]
-    lines = [line for line in lines if line]
-    if not lines:
-        return None
-    executable_path = lines[0]
-    command_line = "\n".join(lines[1:]) if len(lines) > 1 else ""
-    return {"executable_path": executable_path, "command_line": command_line}
-
-
-def normalize_path(value):
-    try:
-        return str(Path(value).resolve()).casefold()
-    except (OSError, RuntimeError, TypeError):
-        return str(value).casefold()
-
-
-def is_expected_listener(pid):
-    details = get_process_details(pid)
-    if not details:
-        return False
-
-    executable_path = details.get("executable_path") or ""
-    command_line = details.get("command_line") or ""
-    if normalize_path(executable_path) != normalize_path(PYTHON_EXE):
-        return False
-    return str(APP_PATH).casefold() in command_line.casefold()
 
 
 def stop_process(pid):
@@ -170,18 +118,12 @@ def launch_and_open():
     ensure_environment()
     existing_pid = get_listening_pid()
     if existing_pid:
-        if is_expected_listener(existing_pid):
-            if not wait_for_server():
-                stop_process(existing_pid)
-                wait_for_port_release()
-        else:
-            stop_process(existing_pid)
-            wait_for_port_release()
+        stop_process(existing_pid)
+        wait_for_port_release()
 
-    if get_listening_pid() is None:
-        start_background_server()
-        if not wait_for_server():
-            raise RuntimeError(f"Streamlit did not become ready within {WAIT_TIMEOUT_SECONDS} seconds.")
+    start_background_server()
+    if not wait_for_server():
+        raise RuntimeError(f"Streamlit did not become ready within {WAIT_TIMEOUT_SECONDS} seconds.")
     open_browser()
 
 
