@@ -1,9 +1,11 @@
 from dataclasses import dataclass
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 
 import streamlit as st
 
 from db import get_app_state, list_articles, list_feeds
-from ui_common import format_jst_datetime, format_jst_time
+from ui_common import JST, format_jst_datetime, format_jst_time
 
 
 @dataclass(frozen=True)
@@ -15,6 +17,33 @@ class SummaryMetrics:
     latest_error_at: str
     error_feed_count: int
     last_fetch_inserted_count: str
+
+
+def parse_jst_datetime(value):
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                dt = parsedate_to_datetime(value)
+            except (TypeError, ValueError):
+                return None
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=JST)
+    return dt.astimezone(JST)
+
+
+def format_summary_metric_datetime(value):
+    dt = parse_jst_datetime(value)
+    if dt is None:
+        return "未成功"
+    return dt.strftime("%m/%d %H:%M")
 
 
 def get_summary_metrics_data():
@@ -40,10 +69,7 @@ def render_summary_metrics(next_auto_fetch_at):
     metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
     metric_col1.metric("有効ソース", f"{metrics.active_sources}", delta=f"全 {metrics.total_sources} 件")
     metric_col2.metric("未読記事", f"{metrics.unread_articles}")
-    metric_col3.metric(
-        "最終成功",
-        format_jst_datetime(metrics.latest_success_at) if metrics.latest_success_at else "未成功",
-    )
+    metric_col3.metric("最終成功", format_summary_metric_datetime(metrics.latest_success_at))
     metric_col4.metric(
         "最終取得件数",
         metrics.last_fetch_inserted_count if metrics.last_fetch_inserted_count != "" else "-",
@@ -56,5 +82,5 @@ def render_summary_metrics(next_auto_fetch_at):
     if metrics.latest_error_at and metrics.latest_error_at >= metrics.latest_success_at:
         st.warning(
             f"{metrics.error_feed_count} 件のソースで取得失敗があります。"
-            f"最新失敗: {format_jst_datetime(metrics.latest_error_at)}"
+            f" 最新失敗: {format_jst_datetime(metrics.latest_error_at)}"
         )
