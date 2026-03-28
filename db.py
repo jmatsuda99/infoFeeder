@@ -227,6 +227,10 @@ def list_articles(keyword=""):
         like = f"%{keyword}%"
         params.extend([like, like])
 
+    query += " AND LOWER(COALESCE(i.link, '')) NOT LIKE ?"
+    query += " AND LOWER(COALESCE(i.link, '')) NOT LIKE ?"
+    params.extend(["%pando%", "%nishinippon%"])
+
     query += """
     GROUP BY i.link
     ORDER BY MAX(COALESCE(i.published, '')) DESC, MAX(i.id) DESC

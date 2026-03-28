@@ -36,6 +36,7 @@ RSS_CONTENT_TYPES = ("application/rss+xml", "application/atom+xml", "application
 USER_AGENT = "infoFeeder/1.0"
 FETCH_LOCK_PATH = Path("data/fetch.lock")
 FETCH_LOCK_STALE_SECONDS = 15 * 60
+EXCLUDED_HOST_KEYWORDS = ("pando", "nishinippon")
 
 
 class FeedDiscoveryParser(HTMLParser):
@@ -118,6 +119,14 @@ def normalize_url(url):
         )
     except Exception:
         return url
+
+
+def is_excluded_article_url(url):
+    try:
+        netloc = urlparse(url).netloc.lower()
+    except Exception:
+        return False
+    return any(keyword in netloc for keyword in EXCLUDED_HOST_KEYWORDS)
 
 
 def resolve_entry_url(entry):
@@ -237,6 +246,9 @@ def extract_html_listing_entries(url):
 
 
 def insert_item(cur, feed_id, title, link, published, summary):
+    if not link or is_excluded_article_url(link):
+        return False
+
     current_article_key = article_key(title, link)
     existing_read = cur.execute(
         "SELECT MAX(COALESCE(is_read, 0)) FROM items WHERE article_key=?",
