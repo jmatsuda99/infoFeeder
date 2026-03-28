@@ -46,6 +46,12 @@ SORT_ORDER_OPTIONS = ["新しい順", "古い順", "保存記事を先頭"]
 JST = ZoneInfo("Asia/Tokyo")
 
 
+def fetch_articles_with_feedback(success_message):
+    count = fetch_active_feeds()
+    st.success(success_message.format(count=count))
+    return count
+
+
 def render_app_shell(next_fetch_at):
     st.markdown(
         """
@@ -347,31 +353,55 @@ def initialize_article_filters():
         )
 
 
-def render_summary_metrics(next_auto_fetch_at):
+def get_summary_metrics_data():
     summary_feeds = list_feeds()
     summary_articles = list_articles("")
-    summary_total_sources = len(summary_feeds)
-    summary_active_sources = sum(1 for feed in summary_feeds if feed["is_active"])
-    summary_unread_articles = 0 if summary_articles.empty else int((summary_articles["is_read"].fillna(0) == 0).sum())
     latest_success_at = max((feed["last_success_at"] for feed in summary_feeds if feed["last_success_at"]), default="")
     latest_error_at = max((feed["last_error_at"] for feed in summary_feeds if feed["last_error_at"]), default="")
-    error_feed_count = sum(1 for feed in summary_feeds if feed["last_error_at"])
-    last_fetch_inserted_count = get_app_state("last_fetch_inserted_count", "")
+
+    return {
+        "total_sources": len(summary_feeds),
+        "active_sources": sum(1 for feed in summary_feeds if feed["is_active"]),
+        "unread_articles": 0 if summary_articles.empty else int((summary_articles["is_read"].fillna(0) == 0).sum()),
+        "latest_success_at": latest_success_at,
+        "latest_error_at": latest_error_at,
+        "error_feed_count": sum(1 for feed in summary_feeds if feed["last_error_at"]),
+        "last_fetch_inserted_count": get_app_state("last_fetch_inserted_count", ""),
+    }
+
+
+def render_summary_metrics(next_auto_fetch_at):
+    metrics = get_summary_metrics_data()
 
     metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
-    metric_col1.metric("有効ソース", f"{summary_active_sources}", delta=f"全 {summary_total_sources} 件")
-    metric_col2.metric("未読記事", f"{summary_unread_articles}")
-    metric_col3.metric("最終成功", format_jst_datetime(latest_success_at) if latest_success_at else "未成功")
-    metric_col4.metric("最終取得件数", last_fetch_inserted_count if last_fetch_inserted_count != "" else "-")
+    metric_col1.metric("有効ソース", f"{metrics['active_sources']}", delta=f"全 {metrics['total_sources']} 件")
+    metric_col2.metric("未読記事", f"{metrics['unread_articles']}")
+    metric_col3.metric(
+        "最終成功",
+        format_jst_datetime(metrics["latest_success_at"]) if metrics["latest_success_at"] else "未成功",
+    )
+    metric_col4.metric(
+        "最終取得件数",
+        metrics["last_fetch_inserted_count"] if metrics["last_fetch_inserted_count"] != "" else "-",
+    )
     metric_col5.metric("次回取得", format_jst_time(next_auto_fetch_at))
 
-    if latest_success_at:
-        st.caption(f"最終取得成功: {format_jst_datetime(latest_success_at)}")
+    if metrics["latest_success_at"]:
+        st.caption(f"最終取得成功: {format_jst_datetime(metrics['latest_success_at'])}")
 
-    if latest_error_at and latest_error_at >= latest_success_at:
+    if metrics["latest_error_at"] and metrics["latest_error_at"] >= metrics["latest_success_at"]:
         st.warning(
-            f"{error_feed_count} 件のソースで取得失敗があります。最新失敗: {format_jst_datetime(latest_error_at)}"
+            f"{metrics['error_feed_count']} 件のソースで取得失敗があります。"
+            f"最新失敗: {format_jst_datetime(metrics['latest_error_at'])}"
         )
+
+
+def build_feed_badges(source_type, category):
+    source_label = "RSS" if source_type == "rss" else "HTML"
+    badge_html = f'<span class="if-badge">{source_label}</span>'
+    if category:
+        badge_html += f'<span class="if-badge if-badge-muted">{category}</span>'
+    return badge_html
 
 
 def render_feed_card(feed):
@@ -392,10 +422,7 @@ def render_feed_card(feed):
         col1, col2, col3 = st.columns([5, 1, 1])
 
         with col1:
-            source_label = "RSS" if source_type == "rss" else "HTML"
-            badge_html = f'<span class="if-badge">{source_label}</span>'
-            if category:
-                badge_html += f'<span class="if-badge if-badge-muted">{category}</span>'
+            badge_html = build_feed_badges(source_type, category)
             st.markdown(f'<div class="if-card-title">{name}</div>{badge_html}', unsafe_allow_html=True)
             st.markdown(f'<div class="if-muted">{base_url}</div>', unsafe_allow_html=True)
             if url != base_url:
@@ -469,6 +496,16 @@ def render_excluded_domain_section():
                         st.rerun()
 
 
+def render_bulk_google_alert_messages(urls, deduped_urls, duplicate_count, added_count, skipped_count):
+    st.info(f"{len(urls)} 件を解析し、そのうち {len(deduped_urls)} 件のユニーク URL を使用します。")
+    if duplicate_count:
+        st.info(f"重複していた {duplicate_count} 件は無視しました。")
+    if added_count:
+        st.success(f"{added_count} 件の RSS を追加しました。")
+    if skipped_count:
+        st.info(f"{skipped_count} 件は登録済みのため追加しませんでした。")
+
+
 def render_source_setup_tab():
     st.subheader("ソースURL登録")
     st.caption("ベースURLを入力すると、RSS/Atom を優先して自動判定し、見つからない場合は HTML listing として登録します。")
@@ -528,21 +565,14 @@ def render_source_setup_tab():
                     bulk_category.strip(),
                 )
 
-                st.info(f"{len(urls)} 件を解析し、そのうち {len(deduped_urls)} 件のユニーク URL を使用します。")
-                if duplicate_count:
-                    st.info(f"重複していた {duplicate_count} 件は無視しました。")
-                if added_count:
-                    st.success(f"{added_count} 件の RSS を追加しました。")
-                if skipped_count:
-                    st.info(f"{skipped_count} 件は登録済みのため追加しませんでした。")
+                render_bulk_google_alert_messages(urls, deduped_urls, duplicate_count, added_count, skipped_count)
                 if added_count:
                     st.rerun()
 
     st.divider()
 
     if st.button("いま取得する"):
-        count = fetch_active_feeds()
-        st.success(f"{count} 件の新着記事を取得しました。")
+        fetch_articles_with_feedback("{count} 件の新着記事を取得しました。")
 
     feeds = list_feeds()
     if feeds:
@@ -583,6 +613,44 @@ def sort_and_limit_articles(df, sort_order, detail_count):
     return df.sort_values(by="published", ascending=False).head(detail_count)
 
 
+def build_article_badges(row, is_read, is_saved, source_name):
+    badge_html = (
+        '<span class="if-badge">既読</span>'
+        if is_read
+        else '<span class="if-badge" style="background:#dbeafe;color:#163b63;">未読</span>'
+    )
+    if is_saved:
+        badge_html += '<span class="if-badge" style="background:#efe7c8;color:#6a5310;">保存</span>'
+    if source_name:
+        badge_html += f'<span class="if-badge if-badge-muted">{source_name}</span>'
+    if row["category"]:
+        badge_html += f'<span class="if-badge if-badge-muted">{row["category"]}</span>'
+    return badge_html
+
+
+def render_article_toggles(item_id, current_article_key, is_read, is_saved):
+    read_here = st.toggle("既読", value=is_read, key=f"read_{item_id}")
+    if read_here != is_read:
+        update_article_read_status(current_article_key, read_here)
+        st.rerun()
+
+    saved_here = st.toggle("保存", value=is_saved, key=f"save_{item_id}")
+    if saved_here != is_saved:
+        update_article_saved_status(current_article_key, saved_here)
+        st.rerun()
+
+
+def render_article_detail(row, item_id, title, link):
+    if row["link"]:
+        link_col, copy_col = st.columns([6.5, 1.5])
+        with link_col:
+            st.markdown(f"**リンク:** {row['link']}")
+        with copy_col:
+            render_copy_button(text_for_copy(title, link), f"{item_id}")
+    st.markdown("**要約**")
+    st.write(row["summary"] if row["summary"] else "要約はありません。")
+
+
 def render_article_card(row):
     title = row["title"] if row["title"] else "(no title)"
     published = row["published"] if row["published"] else ""
@@ -595,25 +663,12 @@ def render_article_card(row):
     is_saved = bool(row["is_saved"])
 
     with st.container(border=True):
-        badge_html = '<span class="if-badge">既読</span>' if is_read else '<span class="if-badge" style="background:#dbeafe;color:#163b63;">未読</span>'
-        if is_saved:
-            badge_html += '<span class="if-badge" style="background:#efe7c8;color:#6a5310;">保存</span>'
-        if source_name:
-            badge_html += f'<span class="if-badge if-badge-muted">{source_name}</span>'
-        if row["category"]:
-            badge_html += f'<span class="if-badge if-badge-muted">{row["category"]}</span>'
+        badge_html = build_article_badges(row, is_read, is_saved, source_name)
         st.markdown(badge_html, unsafe_allow_html=True)
         exp_col1, exp_col2 = st.columns([1.2, 8])
 
         with exp_col1:
-            read_here = st.toggle("既読", value=is_read, key=f"read_{item_id}")
-            if read_here != is_read:
-                update_article_read_status(current_article_key, read_here)
-                st.rerun()
-            saved_here = st.toggle("保存", value=is_saved, key=f"save_{item_id}")
-            if saved_here != is_saved:
-                update_article_saved_status(current_article_key, saved_here)
-                st.rerun()
+            render_article_toggles(item_id, current_article_key, is_read, is_saved)
 
         with exp_col2:
             st.markdown(f'<div class="if-card-title">{title}</div>', unsafe_allow_html=True)
@@ -630,14 +685,22 @@ def render_article_card(row):
                 is_read = True
 
             if show_detail:
-                if row["link"]:
-                    link_col, copy_col = st.columns([6.5, 1.5])
-                    with link_col:
-                        st.markdown(f"**リンク:** {row['link']}")
-                    with copy_col:
-                        render_copy_button(text_for_copy(title, link), f"{item_id}")
-                st.markdown("**要約**")
-                st.write(row["summary"] if row["summary"] else "要約はありません。")
+                render_article_detail(row, item_id, title, link)
+
+
+def update_article_query_params(keyword, detail_count, read_filter, sort_order):
+    st.query_params["keyword"] = keyword
+    st.query_params["count"] = str(detail_count)
+    st.query_params["read"] = read_filter
+    st.query_params["sort"] = sort_order
+
+
+def render_mark_visible_read_action(unread_visible_keys):
+    action_col1, action_col2 = st.columns([2, 6])
+    with action_col1:
+        if st.button("表示中をすべて既読", key="mark_visible_read"):
+            update_articles_read_status(unread_visible_keys, True)
+            st.rerun()
 
 
 def render_articles_tab():
@@ -661,14 +724,10 @@ def render_articles_tab():
             st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
             fetch_now = st.button("RSS取得", key="fetch_articles_tab")
 
-    st.query_params["keyword"] = keyword
-    st.query_params["count"] = str(detail_count)
-    st.query_params["read"] = read_filter
-    st.query_params["sort"] = sort_order
+    update_article_query_params(keyword, detail_count, read_filter, sort_order)
 
     if fetch_now:
-        count = fetch_active_feeds()
-        st.success(f"{count} 件の新着記事を取得しました。")
+        fetch_articles_with_feedback("{count} 件の新着記事を取得しました。")
 
     df = prepare_article_dataframe(keyword)
     if df.empty:
@@ -687,44 +746,43 @@ def render_articles_tab():
 
     unread_visible_keys = visible_df.loc[visible_df["is_read"] == False, "article_key"].dropna().tolist()
     if unread_visible_keys:
-        action_col1, action_col2 = st.columns([2, 6])
-        with action_col1:
-            if st.button("表示中をすべて既読", key="mark_visible_read"):
-                update_articles_read_status(unread_visible_keys, True)
-                st.rerun()
+        render_mark_visible_read_action(unread_visible_keys)
 
     for _, row in visible_df.iterrows():
         render_article_card(row)
 
 
+def initialize_selected_tab():
+    query_tab = st.query_params.get("tab", TAB_SOURCE_SETUP)
+    if query_tab not in TAB_OPTIONS:
+        query_tab = TAB_SOURCE_SETUP
+
+    if "selected_tab" not in st.session_state or st.session_state["selected_tab"] not in TAB_OPTIONS:
+        st.session_state.selected_tab = query_tab
+    elif st.session_state["selected_tab"] != query_tab:
+        st.session_state.selected_tab = query_tab
+
+    st.query_params["tab"] = st.session_state["selected_tab"]
+
+
+def render_main_tabs():
+    tab1, tab2 = st.tabs(
+        TAB_OPTIONS,
+        default=st.session_state["selected_tab"],
+        key="main_tabs",
+        on_change=sync_selected_tab,
+    )
+
+    with tab1:
+        render_source_setup_tab()
+
+    with tab2:
+        render_articles_tab()
+
+
 next_auto_fetch_at = get_next_half_hour(datetime.now())
 render_app_shell(next_auto_fetch_at)
-
-
-query_tab = st.query_params.get("tab", TAB_SOURCE_SETUP)
-if query_tab not in TAB_OPTIONS:
-    query_tab = TAB_SOURCE_SETUP
-
-if "selected_tab" not in st.session_state or st.session_state["selected_tab"] not in TAB_OPTIONS:
-    st.session_state.selected_tab = query_tab
-elif st.session_state["selected_tab"] != query_tab:
-    st.session_state.selected_tab = query_tab
-
-st.query_params["tab"] = st.session_state["selected_tab"]
-
+initialize_selected_tab()
 initialize_article_filters()
 render_summary_metrics(next_auto_fetch_at)
-
-
-tab1, tab2 = st.tabs(
-    TAB_OPTIONS,
-    default=st.session_state["selected_tab"],
-    key="main_tabs",
-    on_change=sync_selected_tab,
-)
-
-with tab1:
-    render_source_setup_tab()
-
-with tab2:
-    render_articles_tab()
+render_main_tabs()
