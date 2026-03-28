@@ -240,42 +240,6 @@ def get_next_half_hour(now):
     return next_half_hour
 
 
-def schedule_page_refresh():
-    now = datetime.now()
-    next_half_hour = get_next_half_hour(now)
-    delay_ms = max(1000, int((next_half_hour - now).total_seconds() * 1000) + 250)
-    html_block = f"""
-    <script>
-    setTimeout(() => {{
-        window.parent.location.reload();
-    }}, {delay_ms});
-    </script>
-    """
-    components.html(html_block, height=0)
-
-
-def run_scheduled_fetch():
-    now = datetime.now()
-    current_slot = None
-
-    if now.minute in (0, 30):
-        current_slot = now.strftime("%Y-%m-%d %H:%M")
-
-    if current_slot and st.session_state.get("last_auto_fetch_slot") != current_slot:
-        count = fetch_active_feeds()
-        st.session_state.last_auto_fetch_slot = current_slot
-        st.session_state.auto_fetch_message = (
-            f"{format_jst_datetime(now)} に {count} 件の新着記事を自動取得しました。"
-        )
-
-    if not current_slot and st.session_state.get("last_auto_fetch_slot"):
-        last_slot = st.session_state["last_auto_fetch_slot"]
-        if last_slot[:14] != now.strftime("%Y-%m-%d %H:"):
-            st.session_state.last_auto_fetch_slot = None
-
-    return get_next_half_hour(now)
-
-
 def render_copy_button(copy_text, key):
     button_id = f"copy-button-{key}"
     payload = json.dumps(copy_text)
@@ -718,12 +682,8 @@ def render_articles_tab():
         render_article_card(row)
 
 
-next_auto_fetch_at = run_scheduled_fetch()
+next_auto_fetch_at = get_next_half_hour(datetime.now())
 render_app_shell(next_auto_fetch_at)
-schedule_page_refresh()
-
-if st.session_state.get("auto_fetch_message"):
-    st.caption(st.session_state["auto_fetch_message"])
 
 
 query_tab = st.query_params.get("tab", TAB_SOURCE_SETUP)
