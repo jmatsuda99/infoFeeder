@@ -15,15 +15,19 @@ from article_utils import (
 )
 from db import (
     add_feed,
+    add_excluded_domain,
     delete_feed,
+    delete_excluded_domain,
     init_db,
     list_articles,
+    list_excluded_domains,
     list_feeds,
     update_article_read_status,
     update_article_saved_status,
     update_articles_read_status,
     update_feed_status,
 )
+from exclusion_rules import resolve_excluded_domain_keywords
 from fetcher import discover_feed_source, fetch_active_feeds
 from version import APP_VERSION
 
@@ -442,6 +446,50 @@ def render_feed_card(feed):
                 st.rerun()
 
 
+def render_excluded_domain_section():
+    st.divider()
+    st.subheader("除外ドメイン設定")
+    st.caption("媒体名やドメイン名を追加すると、そのドメインの記事を取得対象と一覧表示から除外します。")
+
+    with st.form("add_excluded_domain_form"):
+        excluded_name = st.text_input(
+            "除外対象名",
+            help="例: 西日本新聞 / pando / nikkei。既知の媒体名は対応ドメインに自動変換します。",
+        )
+        excluded_submitted = st.form_submit_button("除外対象を追加")
+
+        if excluded_submitted:
+            if not excluded_name.strip():
+                st.error("除外対象名を入力してください。")
+            else:
+                created = add_excluded_domain(excluded_name.strip())
+                if created:
+                    resolved_keywords = ", ".join(resolve_excluded_domain_keywords((excluded_name.strip(),)))
+                    st.success("除外対象を追加しました。")
+                    st.caption(f"適用ドメインキーワード: {resolved_keywords}")
+                    st.rerun()
+                else:
+                    st.warning("その除外対象はすでに登録されています。")
+
+    excluded_domains = list_excluded_domains()
+    if excluded_domains:
+        st.markdown('<div class="if-muted" style="margin-bottom:0.6rem;">登録済み除外対象</div>', unsafe_allow_html=True)
+        for excluded_domain in excluded_domains:
+            excluded_id = excluded_domain["id"]
+            excluded_name = excluded_domain["name"] or ""
+            resolved_keywords = ", ".join(resolve_excluded_domain_keywords((excluded_name,)))
+
+            with st.container(border=True):
+                col1, col2 = st.columns([6, 1])
+                with col1:
+                    st.markdown(f'<div class="if-card-title">{excluded_name}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="if-muted">適用ドメインキーワード: {resolved_keywords}</div>', unsafe_allow_html=True)
+                with col2:
+                    if st.button("削除", key=f"delete_excluded_domain_{excluded_id}"):
+                        delete_excluded_domain(excluded_id)
+                        st.rerun()
+
+
 def render_source_setup_tab():
     st.subheader("ソースURL登録")
     st.caption("ベースURLを入力すると、RSS/Atom を優先して自動判定し、見つからない場合は HTML listing として登録します。")
@@ -522,6 +570,8 @@ def render_source_setup_tab():
         st.markdown('<div class="if-muted" style="margin-bottom:0.6rem;">登録済みソース</div>', unsafe_allow_html=True)
         for feed in feeds:
             render_feed_card(feed)
+
+    render_excluded_domain_section()
 
 
 def prepare_article_dataframe(keyword):

@@ -34,9 +34,13 @@ def resolve_excluded_domain_keywords(names=None):
 
 
 def is_excluded_domain_url(url, names=None):
+    return is_excluded_domain_url_by_keywords(url, resolve_excluded_domain_keywords(names))
+
+
+def is_excluded_domain_url_by_keywords(url, keywords):
     try:
         netloc = urlparse(url).netloc.lower()
     except Exception:
         return False
 
-    return any(keyword in netloc for keyword in resolve_excluded_domain_keywords(names))
+    return any(keyword in netloc for keyword in keywords)

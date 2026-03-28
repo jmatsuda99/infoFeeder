@@ -9,8 +9,8 @@ from urllib.request import Request, urlopen
 
 import feedparser
 from article_utils import article_key
-from db import get_conn
-from exclusion_rules import is_excluded_domain_url
+from db import get_conn, get_excluded_domain_keywords
+from exclusion_rules import is_excluded_domain_url_by_keywords
 TRACKING_QUERY_KEYS = {
     "utm_source",
     "utm_medium",
@@ -237,8 +237,8 @@ def extract_html_listing_entries(url):
     return entries
 
 
-def insert_item(cur, feed_id, title, link, published, summary):
-    if not link or is_excluded_domain_url(link):
+def insert_item(cur, feed_id, title, link, published, summary, excluded_domain_keywords):
+    if not link or is_excluded_domain_url_by_keywords(link, excluded_domain_keywords):
         return False
 
     current_article_key = article_key(title, link)
@@ -320,6 +320,7 @@ def fetch_active_feeds():
     try:
         cur.execute("SELECT id,url,source_type FROM feeds WHERE is_active=1")
         feeds=cur.fetchall()
+        excluded_domain_keywords = get_excluded_domain_keywords()
 
         inserted=0
 
@@ -328,7 +329,7 @@ def fetch_active_feeds():
                 if source_type == "html_listing":
                     entries = extract_html_listing_entries(url)
                     for entry in entries:
-                        if insert_item(cur, feed_id, entry["title"], entry["link"], entry["published"], entry["summary"]):
+                        if insert_item(cur, feed_id, entry["title"], entry["link"], entry["published"], entry["summary"], excluded_domain_keywords):
                             inserted += 1
                     update_feed_fetch_status(cur, feed_id, success=True)
                     continue
@@ -345,7 +346,8 @@ def fetch_active_feeds():
                         e.get("title",""),
                         link,
                         e.get("published",""),
-                        e.get("summary","")
+                        e.get("summary",""),
+                        excluded_domain_keywords,
                     ):
                         inserted += 1
                 update_feed_fetch_status(cur, feed_id, success=True)

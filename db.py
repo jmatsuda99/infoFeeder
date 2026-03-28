@@ -6,16 +6,13 @@ from pathlib import Path
 
 import pandas as pd
 from article_utils import article_key
-from exclusion_rules import resolve_excluded_domain_keywords
+from exclusion_rules import DEFAULT_EXCLUDED_DOMAIN_NAMES, resolve_excluded_domain_keywords
 
 DB_PATH="data/alerts.db"
 DB_TIMEOUT_SECONDS = 30
 DB_BUSY_TIMEOUT_MS = DB_TIMEOUT_SECONDS * 1000
 DB_RETRY_ATTEMPTS = 5
 DB_RETRY_DELAY_SECONDS = 0.4
-EXCLUDED_DOMAIN_KEYWORDS = resolve_excluded_domain_keywords()
-
-
 def configure_conn(conn):
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout = {DB_BUSY_TIMEOUT_MS}")
@@ -93,6 +90,22 @@ def init_db():
             ).fetchone()
             if feed_needs_source_type:
                 cur.execute("UPDATE feeds SET source_type='rss' WHERE source_type IS NULL OR source_type = ''")
+
+            cur.execute("""CREATE TABLE IF NOT EXISTS excluded_domains(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                created_at TEXT,
+                updated_at TEXT
+            )""")
+
+            for default_name in DEFAULT_EXCLUDED_DOMAIN_NAMES:
+                cur.execute(
+                    """
+                    INSERT OR IGNORE INTO excluded_domains(name, created_at, updated_at)
+                    VALUES(?,?,?)
+                    """,
+                    (default_name, datetime.now().isoformat(timespec="seconds"), datetime.now().isoformat(timespec="seconds"))
+                )
 
             cur.execute("""CREATE TABLE IF NOT EXISTS items(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -201,6 +214,64 @@ def delete_feed(feed_id):
     run_with_retry(_delete_feed)
 
 
+def list_excluded_domains():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, name FROM excluded_domains ORDER BY id ASC")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def add_excluded_domain(name):
+    normalized_name = (name or "").strip()
+    if not normalized_name:
+        return False
+
+    now = datetime.now().isoformat(timespec="seconds")
+
+    def _add_excluded_domain():
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO excluded_domains(name, created_at, updated_at)
+                VALUES(?,?,?)
+                """,
+                (normalized_name, now, now),
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+        finally:
+            conn.close()
+
+    return run_with_retry(_add_excluded_domain)
+
+
+def delete_excluded_domain(excluded_domain_id):
+    def _delete_excluded_domain():
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("DELETE FROM excluded_domains WHERE id=?", (excluded_domain_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    run_with_retry(_delete_excluded_domain)
+
+
+def get_excluded_domain_names():
+    return tuple(row["name"] for row in list_excluded_domains())
+
+
+def get_excluded_domain_keywords():
+    return resolve_excluded_domain_keywords(get_excluded_domain_names())
+
+
 def list_articles(keyword=""):
     conn = get_conn()
 
@@ -229,7 +300,7 @@ def list_articles(keyword=""):
         like = f"%{keyword}%"
         params.extend([like, like])
 
-    for excluded_keyword in EXCLUDED_DOMAIN_KEYWORDS:
+    for excluded_keyword in get_excluded_domain_keywords():
         query += " AND LOWER(COALESCE(i.link, '')) NOT LIKE ?"
         params.append(f"%{excluded_keyword}%")
 
