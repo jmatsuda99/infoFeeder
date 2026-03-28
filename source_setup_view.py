@@ -49,6 +49,32 @@ def build_feed_badges(source_type, category):
     return badge_html
 
 
+def handle_add_feed_submission(name, url, category):
+    if not name.strip() or not url.strip():
+        st.error("名前とベースURLを入力してください。")
+        return
+
+    try:
+        created, detected = add_source_from_base_url(
+            name.strip(),
+            url.strip(),
+            category.strip(),
+        )
+    except Exception as error:
+        st.error(f"URL の確認に失敗しました: {error}")
+        return
+
+    if created:
+        detected_type_label = "RSS" if detected["source_type"] == "rss" else "HTML listing"
+        st.success(f"{detected_type_label} として追加しました。")
+        st.caption(f"ベースURL: {detected['base_url']}")
+        st.caption(f"取得URL: {detected['fetch_url']}")
+        st.caption(detected["detail"])
+        st.rerun()
+
+    st.warning("そのソースはすでに登録されています。")
+
+
 def render_feed_card(feed):
     feed_id = feed["id"]
     name = feed["name"] or ""
@@ -151,6 +177,26 @@ def render_bulk_google_alert_messages(urls, deduped_urls, duplicate_count, added
         st.info(f"{skipped_count} 件は登録済みのため追加しませんでした。")
 
 
+def handle_bulk_google_alert_submission(bulk_urls, bulk_name_prefix, bulk_category, parse_google_alert_urls, unique_urls):
+    urls = parse_google_alert_urls(bulk_urls)
+    deduped_urls = unique_urls(urls)
+    duplicate_count = len(urls) - len(deduped_urls)
+
+    if not deduped_urls:
+        st.error("貼り付けた内容から RSS URL を見つけられませんでした。")
+        return
+
+    added_count, skipped_count = add_urls_as_feeds(
+        deduped_urls,
+        bulk_name_prefix.strip(),
+        bulk_category.strip(),
+    )
+
+    render_bulk_google_alert_messages(urls, deduped_urls, duplicate_count, added_count, skipped_count)
+    if added_count:
+        st.rerun()
+
+
 def render_source_setup_tab(parse_google_alert_urls, unique_urls):
     st.subheader("ソースURL登録")
     st.caption("ベースURLを入力すると、RSS/Atom を優先して自動判定し、見つからない場合は HTML listing として登録します。")
@@ -162,27 +208,7 @@ def render_source_setup_tab(parse_google_alert_urls, unique_urls):
         submitted = st.form_submit_button("追加")
 
         if submitted:
-            if not name.strip() or not url.strip():
-                st.error("名前とベースURLを入力してください。")
-            else:
-                try:
-                    created, detected = add_source_from_base_url(
-                        name.strip(),
-                        url.strip(),
-                        category.strip(),
-                    )
-                except Exception as error:
-                    st.error(f"URL の確認に失敗しました: {error}")
-                else:
-                    if created:
-                        detected_type_label = "RSS" if detected["source_type"] == "rss" else "HTML listing"
-                        st.success(f"{detected_type_label} として追加しました。")
-                        st.caption(f"ベースURL: {detected['base_url']}")
-                        st.caption(f"取得URL: {detected['fetch_url']}")
-                        st.caption(detected["detail"])
-                        st.rerun()
-                    else:
-                        st.warning("そのソースはすでに登録されています。")
+            handle_add_feed_submission(name, url, category)
 
     st.caption("Google Alerts の RSS URL は下の一括登録からそのまま追加できます。")
     st.info("Google Alerts の RSS URL を 1 行に 1 件ずつ貼り付けてください。")
@@ -197,22 +223,13 @@ def render_source_setup_tab(parse_google_alert_urls, unique_urls):
         bulk_submitted = st.form_submit_button("Google Alerts RSS を追加")
 
         if bulk_submitted:
-            urls = parse_google_alert_urls(bulk_urls)
-            deduped_urls = unique_urls(urls)
-            duplicate_count = len(urls) - len(deduped_urls)
-
-            if not deduped_urls:
-                st.error("貼り付けた内容から RSS URL を見つけられませんでした。")
-            else:
-                added_count, skipped_count = add_urls_as_feeds(
-                    deduped_urls,
-                    bulk_name_prefix.strip(),
-                    bulk_category.strip(),
-                )
-
-                render_bulk_google_alert_messages(urls, deduped_urls, duplicate_count, added_count, skipped_count)
-                if added_count:
-                    st.rerun()
+            handle_bulk_google_alert_submission(
+                bulk_urls,
+                bulk_name_prefix,
+                bulk_category,
+                parse_google_alert_urls,
+                unique_urls,
+            )
 
     st.divider()
 
