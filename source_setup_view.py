@@ -232,6 +232,9 @@ def render_source_setup_tab(parse_google_alert_urls, unique_urls):
             )
 
     st.divider()
+    render_excluded_domain_section()
+
+    st.divider()
 
     if st.button("いま取得する"):
         fetch_articles_with_feedback("{count} 件の新着記事を取得しました。")
@@ -241,5 +244,3 @@ def render_source_setup_tab(parse_google_alert_urls, unique_urls):
         st.markdown('<div class="if-muted" style="margin-bottom:0.6rem;">登録済みソース</div>', unsafe_allow_html=True)
         for feed in feeds:
             render_feed_card(feed)
-
-    render_excluded_domain_section()
