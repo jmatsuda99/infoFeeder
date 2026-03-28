@@ -1,3 +1,17 @@
+## Windows Commit Flow
+
+- Windows では Git hook による自動バージョン更新が環境依存で失敗することがあります。
+- そのため、このリポジトリでは `commit_with_version.bat` をコミット入口として使う運用を追加しました。
+- `commit_with_version.py` がコミットメッセージから更新種別を判定し、`VERSION` を更新してから `git commit` を実行します。
+- `feat:` は minor、`fix:` `refactor:` `docs:` `test:` `chore:` `perf:` `style:` は patch、`feat!:` や `BREAKING CHANGE` は major です。
+- 使い方:
+
+```powershell
+.\commit_with_version.bat "feat: add exclusion settings"
+```
+
+- コミットが失敗した場合は `VERSION` を元に戻します。
+
 # Google Alerts RSS Viewer
 
 Google Alerts や RSS/Atom フィードをまとめて取得し、Streamlit 上で記事一覧を確認するツールです。
