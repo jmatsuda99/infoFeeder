@@ -352,11 +352,23 @@ def render_summary_metrics(next_auto_fetch_at):
     summary_total_sources = len(summary_feeds)
     summary_active_sources = sum(1 for feed in summary_feeds if feed["is_active"])
     summary_unread_articles = 0 if summary_articles.empty else int((summary_articles["is_read"].fillna(0) == 0).sum())
+    latest_success_at = max((feed["last_success_at"] for feed in summary_feeds if feed["last_success_at"]), default="")
+    latest_error_at = max((feed["last_error_at"] for feed in summary_feeds if feed["last_error_at"]), default="")
+    error_feed_count = sum(1 for feed in summary_feeds if feed["last_error_at"])
 
-    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
     metric_col1.metric("有効ソース", f"{summary_active_sources}", delta=f"全 {summary_total_sources} 件")
     metric_col2.metric("未読記事", f"{summary_unread_articles}")
-    metric_col3.metric("次回取得", format_jst_time(next_auto_fetch_at))
+    metric_col3.metric("最終成功", format_jst_datetime(latest_success_at) if latest_success_at else "未成功")
+    metric_col4.metric("次回取得", format_jst_time(next_auto_fetch_at))
+
+    if latest_success_at:
+        st.caption(f"最終取得成功: {format_jst_datetime(latest_success_at)}")
+
+    if latest_error_at and latest_error_at >= latest_success_at:
+        st.warning(
+            f"{error_feed_count} 件のソースで取得失敗があります。最新失敗: {format_jst_datetime(latest_error_at)}"
+        )
 
 
 def render_feed_card(feed):
