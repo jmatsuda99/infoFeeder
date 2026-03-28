@@ -1,15 +1,15 @@
 
-import sqlite3
+import os
 from datetime import datetime
 from html import unescape
 from html.parser import HTMLParser
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, parse_qs, urljoin, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 import feedparser
 from article_utils import article_key
-
-DB_PATH="data/alerts.db"
+from db import get_conn
 TRACKING_QUERY_KEYS = {
     "utm_source",
     "utm_medium",
@@ -34,6 +34,8 @@ TRACKING_QUERY_KEYS = {
 }
 RSS_CONTENT_TYPES = ("application/rss+xml", "application/atom+xml", "application/xml", "text/xml")
 USER_AGENT = "infoFeeder/1.0"
+FETCH_LOCK_PATH = Path("data/fetch.lock")
+FETCH_LOCK_STALE_SECONDS = 15 * 60
 
 
 class FeedDiscoveryParser(HTMLParser):
@@ -278,45 +280,76 @@ def update_feed_fetch_status(cur, feed_id, *, success, error_message=""):
             (now, error_message[:500], now, feed_id),
         )
 
+
+def acquire_fetch_lock():
+    Path("data").mkdir(exist_ok=True)
+
+    if FETCH_LOCK_PATH.exists():
+        age_seconds = datetime.now().timestamp() - FETCH_LOCK_PATH.stat().st_mtime
+        if age_seconds > FETCH_LOCK_STALE_SECONDS:
+            FETCH_LOCK_PATH.unlink(missing_ok=True)
+
+    try:
+        fd = os.open(str(FETCH_LOCK_PATH), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return None
+
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(datetime.now().isoformat(timespec="seconds"))
+
+    return FETCH_LOCK_PATH
+
+
+def release_fetch_lock(lock_path):
+    if lock_path:
+        Path(lock_path).unlink(missing_ok=True)
+
+
 def fetch_active_feeds():
-    conn=sqlite3.connect(DB_PATH)
+    lock_path = acquire_fetch_lock()
+    if not lock_path:
+        return 0
+
+    conn=get_conn()
     cur=conn.cursor()
 
-    cur.execute("SELECT id,url,source_type FROM feeds WHERE is_active=1")
-    feeds=cur.fetchall()
+    try:
+        cur.execute("SELECT id,url,source_type FROM feeds WHERE is_active=1")
+        feeds=cur.fetchall()
 
-    inserted=0
+        inserted=0
 
-    for feed_id,url,source_type in feeds:
-        try:
-            if source_type == "html_listing":
-                entries = extract_html_listing_entries(url)
-                for entry in entries:
-                    if insert_item(cur, feed_id, entry["title"], entry["link"], entry["published"], entry["summary"]):
+        for feed_id,url,source_type in feeds:
+            try:
+                if source_type == "html_listing":
+                    entries = extract_html_listing_entries(url)
+                    for entry in entries:
+                        if insert_item(cur, feed_id, entry["title"], entry["link"], entry["published"], entry["summary"]):
+                            inserted += 1
+                    update_feed_fetch_status(cur, feed_id, success=True)
+                    continue
+
+                parsed=feedparser.parse(url)
+                if getattr(parsed, "bozo", False) and not parsed.entries:
+                    raise ValueError(str(getattr(parsed, "bozo_exception", "Feed parsing failed")))
+
+                for e in parsed.entries:
+                    link = resolve_entry_url(e)
+                    if insert_item(
+                        cur,
+                        feed_id,
+                        e.get("title",""),
+                        link,
+                        e.get("published",""),
+                        e.get("summary","")
+                    ):
                         inserted += 1
                 update_feed_fetch_status(cur, feed_id, success=True)
-                continue
+            except Exception as error:
+                update_feed_fetch_status(cur, feed_id, success=False, error_message=str(error))
 
-            parsed=feedparser.parse(url)
-            if getattr(parsed, "bozo", False) and not parsed.entries:
-                raise ValueError(str(getattr(parsed, "bozo_exception", "Feed parsing failed")))
-
-            for e in parsed.entries:
-                link = resolve_entry_url(e)
-                if insert_item(
-                    cur,
-                    feed_id,
-                    e.get("title",""),
-                    link,
-                    e.get("published",""),
-                    e.get("summary","")
-                ):
-                    inserted += 1
-            update_feed_fetch_status(cur, feed_id, success=True)
-        except Exception as error:
-            update_feed_fetch_status(cur, feed_id, success=False, error_message=str(error))
-
-    conn.commit()
-    conn.close()
-
-    return inserted
+        conn.commit()
+        return inserted
+    finally:
+        conn.close()
+        release_fetch_lock(lock_path)
