@@ -163,12 +163,42 @@ def update_article_query_params(keyword, detail_count, read_filter, sort_order):
     st.query_params["sort"] = sort_order
 
 
-def render_mark_visible_read_action(unread_visible_keys):
-    action_col1, action_col2 = st.columns([2, 6])
+def build_article_export_csv(visible_df):
+    export_df = visible_df.copy()
+    export_df["published_jst"] = export_df["published"].apply(format_jst_datetime)
+    export_df["is_read"] = export_df["is_read"].map(lambda value: "yes" if bool(value) else "no")
+    export_df["is_saved"] = export_df["is_saved"].map(lambda value: "yes" if bool(value) else "no")
+    export_columns = [
+        "title",
+        "link",
+        "source_name",
+        "category",
+        "published_jst",
+        "is_read",
+        "is_saved",
+        "summary",
+    ]
+    return export_df[export_columns].rename(
+        columns={
+            "source_name": "source",
+        }
+    ).to_csv(index=False).encode("utf-8-sig")
+
+
+def render_article_actions(unread_visible_keys, visible_df):
+    action_col1, action_col2, action_col3 = st.columns([2, 2, 4])
     with action_col1:
-        if st.button("表示中をすべて既読", key="mark_visible_read"):
+        if unread_visible_keys and st.button("表示中をすべて既読", key="mark_visible_read"):
             update_articles_read_status(unread_visible_keys, True)
             st.rerun()
+    with action_col2:
+        st.download_button(
+            "CSV出力",
+            data=build_article_export_csv(visible_df),
+            file_name="articles_export.csv",
+            mime="text/csv",
+            key="download_articles_csv",
+        )
 
 
 def render_articles_tab(read_filter_options, sort_order_options):
@@ -213,8 +243,7 @@ def render_articles_tab(read_filter_options, sort_order_options):
         return
 
     unread_visible_keys = visible_df.loc[visible_df["is_read"] == False, "article_key"].dropna().tolist()
-    if unread_visible_keys:
-        render_mark_visible_read_action(unread_visible_keys)
+    render_article_actions(unread_visible_keys, visible_df)
 
     for _, row in visible_df.iterrows():
         render_article_card(row)
