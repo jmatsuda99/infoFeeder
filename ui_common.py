@@ -214,6 +214,20 @@ def get_next_half_hour(now):
     return next_half_hour
 
 
+def render_scheduled_reload(next_fetch_at, now):
+    delay_ms = max(1000, int((next_fetch_at - now).total_seconds() * 1000) + 1000)
+    components.html(
+        f"""
+        <script>
+        setTimeout(() => {{
+            window.parent.location.reload();
+        }}, {delay_ms});
+        </script>
+        """,
+        height=0,
+    )
+
+
 def render_copy_button(copy_text, key):
     button_id = f"copy-button-{key}"
     payload = json.dumps(copy_text)

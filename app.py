@@ -4,10 +4,11 @@ import streamlit as st
 
 from article_utils import parse_google_alert_urls, unique_urls
 from articles_view import initialize_article_filters, render_articles_tab
-from db import init_db
+from db import get_app_state, init_db, set_app_state
+from fetcher import fetch_active_feeds
 from source_setup_view import render_source_setup_tab
 from summary_view import render_summary_metrics
-from ui_common import get_next_half_hour, render_app_shell
+from ui_common import get_next_half_hour, render_app_shell, render_scheduled_reload
 
 
 st.set_page_config(page_title="Google Alerts RSS Viewer", layout="wide")
@@ -20,6 +21,7 @@ TAB_ARTICLES = "記事一覧"
 TAB_OPTIONS = [TAB_SOURCE_SETUP, TAB_ARTICLES]
 READ_FILTER_OPTIONS = ["未読", "既読", "すべて"]
 SORT_ORDER_OPTIONS = ["新しい順", "古い順", "保存記事を先頭"]
+AUTO_FETCH_SLOT_KEY = "last_auto_fetch_slot"
 
 
 def sync_selected_tab():
@@ -42,6 +44,18 @@ def initialize_selected_tab():
     st.query_params["tab"] = st.session_state["selected_tab"]
 
 
+def maybe_run_auto_fetch(now):
+    if now.minute not in (0, 30):
+        return
+
+    current_slot = now.strftime("%Y-%m-%dT%H:%M")
+    if get_app_state(AUTO_FETCH_SLOT_KEY, "") == current_slot:
+        return
+
+    fetch_active_feeds()
+    set_app_state(AUTO_FETCH_SLOT_KEY, current_slot)
+
+
 def render_main_tabs():
     tab1, tab2 = st.tabs(
         TAB_OPTIONS,
@@ -57,7 +71,10 @@ def render_main_tabs():
         render_articles_tab(READ_FILTER_OPTIONS, SORT_ORDER_OPTIONS)
 
 
-next_auto_fetch_at = get_next_half_hour(datetime.now())
+now = datetime.now()
+next_auto_fetch_at = get_next_half_hour(now)
+maybe_run_auto_fetch(now)
+render_scheduled_reload(next_auto_fetch_at, now)
 render_app_shell(next_auto_fetch_at)
 initialize_selected_tab()
 initialize_article_filters(READ_FILTER_OPTIONS, SORT_ORDER_OPTIONS)
