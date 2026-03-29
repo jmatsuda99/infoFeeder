@@ -20,6 +20,7 @@ TAB_SOURCE_SETUP = "ソース設定"
 TAB_ARTICLES = "記事一覧"
 TAB_OPTIONS = [TAB_SOURCE_SETUP, TAB_ARTICLES]
 READ_FILTER_OPTIONS = ["未読", "既読", "すべて"]
+SAVED_FILTER_OPTIONS = ["すべて", "保存済みのみ"]
 SORT_ORDER_OPTIONS = ["新しい順", "古い順", "保存記事を先頭"]
 AUTO_FETCH_SLOT_KEY = "last_auto_fetch_slot"
 
@@ -68,7 +69,7 @@ def render_main_tabs():
         render_source_setup_tab(parse_google_alert_urls, unique_urls)
 
     with tab2:
-        render_articles_tab(READ_FILTER_OPTIONS, SORT_ORDER_OPTIONS)
+        render_articles_tab(READ_FILTER_OPTIONS, SAVED_FILTER_OPTIONS, SORT_ORDER_OPTIONS)
 
 
 now = datetime.now()
@@ -77,6 +78,6 @@ maybe_run_auto_fetch(now)
 render_scheduled_reload(next_auto_fetch_at, now)
 render_app_shell(next_auto_fetch_at)
 initialize_selected_tab()
-initialize_article_filters(READ_FILTER_OPTIONS, SORT_ORDER_OPTIONS)
+initialize_article_filters(READ_FILTER_OPTIONS, SAVED_FILTER_OPTIONS, SORT_ORDER_OPTIONS)
 render_summary_metrics(next_auto_fetch_at)
 render_main_tabs()

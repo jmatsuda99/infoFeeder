@@ -31,7 +31,7 @@ def get_int_query_param(name, default, min_value=None, max_value=None):
     return parsed
 
 
-def initialize_article_filters(read_filter_options, sort_order_options):
+def initialize_article_filters(read_filter_options, saved_filter_options, sort_order_options):
     if "article_keyword" not in st.session_state:
         st.session_state.article_keyword = get_query_param("keyword", "")
 
@@ -42,6 +42,12 @@ def initialize_article_filters(read_filter_options, sort_order_options):
         initial_read_filter = get_query_param("read", read_filter_options[0])
         st.session_state.article_read_filter = (
             initial_read_filter if initial_read_filter in read_filter_options else read_filter_options[0]
+        )
+
+    if "article_saved_filter" not in st.session_state:
+        initial_saved_filter = get_query_param("saved", saved_filter_options[0])
+        st.session_state.article_saved_filter = (
+            initial_saved_filter if initial_saved_filter in saved_filter_options else saved_filter_options[0]
         )
 
     if "article_sort_order" not in st.session_state:
@@ -65,12 +71,18 @@ def prepare_article_dataframe(keyword):
     return deduplicate_articles(df)
 
 
-def filter_articles(df, read_filter):
+def filter_articles(df, read_filter, saved_filter):
     if read_filter == "未読":
-        return df[df["is_read"] == False].copy()
-    if read_filter == "既読":
-        return df[df["is_read"] == True].copy()
-    return df.copy()
+        filtered_df = df[df["is_read"] == False].copy()
+    elif read_filter == "既読":
+        filtered_df = df[df["is_read"] == True].copy()
+    else:
+        filtered_df = df.copy()
+
+    if saved_filter == "保存済みのみ":
+        filtered_df = filtered_df[filtered_df["is_saved"] == True].copy()
+
+    return filtered_df
 
 
 def sort_and_limit_articles(df, sort_order, detail_count):
@@ -156,10 +168,11 @@ def render_article_card(row):
                 render_article_detail(row, item_id, title, link)
 
 
-def update_article_query_params(keyword, detail_count, read_filter, sort_order):
+def update_article_query_params(keyword, detail_count, read_filter, saved_filter, sort_order):
     st.query_params["keyword"] = keyword
     st.query_params["count"] = str(detail_count)
     st.query_params["read"] = read_filter
+    st.query_params["saved"] = saved_filter
     st.query_params["sort"] = sort_order
 
 
@@ -201,12 +214,12 @@ def render_article_actions(unread_visible_keys, visible_df):
         )
 
 
-def render_articles_tab(read_filter_options, sort_order_options):
+def render_articles_tab(read_filter_options, saved_filter_options, sort_order_options):
     st.subheader("記事一覧")
 
     with st.container(border=True):
         st.markdown('<div class="if-muted" style="margin-bottom:0.6rem;">表示条件</div>', unsafe_allow_html=True)
-        col1, col2, col3, col4 = st.columns([3.2, 1.2, 1.4, 1.3])
+        col1, col2, col3, col4, col5 = st.columns([3.0, 1.1, 1.2, 1.4, 1.3])
 
         with col1:
             keyword = st.text_input("キーワード", key="article_keyword")
@@ -218,11 +231,14 @@ def render_articles_tab(read_filter_options, sort_order_options):
             read_filter = st.selectbox("表示", read_filter_options, key="article_read_filter")
 
         with col4:
+            saved_filter = st.selectbox("保存", saved_filter_options, key="article_saved_filter")
+
+        with col5:
             sort_order = st.selectbox("並び順", sort_order_options, key="article_sort_order")
             st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
             fetch_now = st.button("RSS取得", key="fetch_articles_tab")
 
-    update_article_query_params(keyword, detail_count, read_filter, sort_order)
+    update_article_query_params(keyword, detail_count, read_filter, saved_filter, sort_order)
 
     if fetch_now:
         fetch_articles_with_feedback("{count} 件の新着記事を取得しました。")
@@ -232,7 +248,7 @@ def render_articles_tab(read_filter_options, sort_order_options):
         st.info("記事がありません。")
         return
 
-    filtered_df = filter_articles(df, read_filter)
+    filtered_df = filter_articles(df, read_filter, saved_filter)
 
     st.divider()
     st.subheader(f"最新 {detail_count} 件")
