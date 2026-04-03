@@ -130,16 +130,20 @@ def init_db():
                 cur.execute("ALTER TABLE items ADD COLUMN is_saved INTEGER DEFAULT 0")
             if "saved_at" not in item_columns:
                 cur.execute("ALTER TABLE items ADD COLUMN saved_at TEXT")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_items_article_key ON items(article_key)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_items_published ON items(published)")
 
-            rows_to_backfill = cur.execute("""
-                SELECT id, title, link
+            rows_to_refresh = cur.execute("""
+                SELECT id, title, link, article_key
                 FROM items
-                WHERE article_key IS NULL OR article_key = ''
             """).fetchall()
-            for row in rows_to_backfill:
+            for row in rows_to_refresh:
+                refreshed_article_key = article_key(row["title"], row["link"])
+                if row["article_key"] == refreshed_article_key:
+                    continue
                 cur.execute(
                     "UPDATE items SET article_key=? WHERE id=?",
-                    (article_key(row["title"], row["link"]), row["id"])
+                    (refreshed_article_key, row["id"])
                 )
 
             cur.execute(
@@ -317,6 +321,47 @@ def set_app_state(key, value):
     run_with_retry(_set_app_state)
 
 
+def get_summary_metrics_row():
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        feed_metrics = cur.execute(
+            """
+            SELECT
+                COUNT(*) AS total_sources,
+                SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active_sources,
+                MAX(COALESCE(last_success_at, '')) AS latest_success_at,
+                MAX(COALESCE(last_error_at, '')) AS latest_error_at,
+                SUM(CASE WHEN COALESCE(last_error_at, '') != '' THEN 1 ELSE 0 END) AS error_feed_count
+            FROM feeds
+            """
+        ).fetchone()
+
+        article_metrics = cur.execute(
+            """
+            SELECT COUNT(*) AS unread_articles
+            FROM (
+                SELECT article_key
+                FROM items
+                WHERE COALESCE(article_key, '') != ''
+                GROUP BY article_key
+                HAVING MAX(COALESCE(is_read, 0)) = 0
+            )
+            """
+        ).fetchone()
+
+        return {
+            "total_sources": int(feed_metrics["total_sources"] or 0),
+            "active_sources": int(feed_metrics["active_sources"] or 0),
+            "latest_success_at": feed_metrics["latest_success_at"] or "",
+            "latest_error_at": feed_metrics["latest_error_at"] or "",
+            "error_feed_count": int(feed_metrics["error_feed_count"] or 0),
+            "unread_articles": int(article_metrics["unread_articles"] or 0),
+        }
+    finally:
+        conn.close()
+
+
 def list_articles(keyword=""):
     conn = get_conn()
 
@@ -357,6 +402,36 @@ def list_articles(keyword=""):
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
     return df
+
+
+def list_articles_by_key(article_key_value):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        rows = cur.execute(
+            """
+            SELECT
+                i.id as id,
+                i.published as published,
+                COALESCE(f.category, '') as category,
+                COALESCE(f.name, '') as source_name,
+                COALESCE(i.article_key, '') as article_key,
+                COALESCE(i.is_read, 0) as is_read,
+                COALESCE(i.is_saved, 0) as is_saved,
+                COALESCE(i.saved_at, '') as saved_at,
+                i.link as link,
+                COALESCE(i.title, '') as title,
+                COALESCE(i.summary, '') as summary
+            FROM items i
+            JOIN feeds f ON i.feed_id = f.id
+            WHERE COALESCE(i.article_key, '') = ?
+            ORDER BY COALESCE(i.published, '') DESC, i.id DESC
+            """,
+            (article_key_value,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
 
 
 def update_article_read_status(article_key_value, is_read):

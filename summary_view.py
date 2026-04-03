@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import streamlit as st
 
-from db import get_app_state, list_articles, list_feeds
+from db import get_app_state, get_summary_metrics_row
 from ui_common import format_jst_datetime, format_jst_time
 
 
@@ -18,18 +18,15 @@ class SummaryMetrics:
 
 
 def get_summary_metrics_data():
-    summary_feeds = list_feeds()
-    summary_articles = list_articles("")
-    latest_success_at = max((feed["last_success_at"] for feed in summary_feeds if feed["last_success_at"]), default="")
-    latest_error_at = max((feed["last_error_at"] for feed in summary_feeds if feed["last_error_at"]), default="")
+    metrics_row = get_summary_metrics_row()
 
     return SummaryMetrics(
-        total_sources=len(summary_feeds),
-        active_sources=sum(1 for feed in summary_feeds if feed["is_active"]),
-        unread_articles=0 if summary_articles.empty else int((summary_articles["is_read"].fillna(0) == 0).sum()),
-        latest_success_at=latest_success_at,
-        latest_error_at=latest_error_at,
-        error_feed_count=sum(1 for feed in summary_feeds if feed["last_error_at"]),
+        total_sources=metrics_row["total_sources"],
+        active_sources=metrics_row["active_sources"],
+        unread_articles=metrics_row["unread_articles"],
+        latest_success_at=metrics_row["latest_success_at"],
+        latest_error_at=metrics_row["latest_error_at"],
+        error_feed_count=metrics_row["error_feed_count"],
         last_fetch_inserted_count=get_app_state("last_fetch_inserted_count", ""),
     )
 
