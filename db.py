@@ -8,7 +8,9 @@ import pandas as pd
 from article_utils import article_key
 from exclusion_rules import DEFAULT_EXCLUDED_DOMAIN_NAMES, resolve_excluded_domain_keywords
 
-DB_PATH="data/alerts.db"
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+DB_PATH = DATA_DIR / "alerts.db"
 DB_TIMEOUT_SECONDS = 30
 DB_BUSY_TIMEOUT_MS = DB_TIMEOUT_SECONDS * 1000
 DB_RETRY_ATTEMPTS = 5
@@ -41,9 +43,9 @@ def run_with_retry(action, *, retries=DB_RETRY_ATTEMPTS, delay=DB_RETRY_DELAY_SE
 
 
 def get_conn():
-    Path("data").mkdir(exist_ok=True)
+    DATA_DIR.mkdir(exist_ok=True)
     return run_with_retry(
-        lambda: configure_conn(sqlite3.connect(DB_PATH, timeout=DB_TIMEOUT_SECONDS))
+        lambda: configure_conn(sqlite3.connect(str(DB_PATH), timeout=DB_TIMEOUT_SECONDS))
     )
 
 def init_db():

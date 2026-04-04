@@ -1,0 +1,54 @@
+<div class="article-list">
+    {% if feeds %}
+        {% for feed in feeds %}
+        <article class="article-card" id="feed-{{ feed.id }}">
+            <div class="article-head">
+                <div>
+                    <div class="badges">
+                        <span class="badge badge-muted">{{ "RSS" if feed.source_type == "rss" else "HTML" }}</span>
+                        {% if feed.category %}
+                        <span class="badge badge-muted">{{ feed.category }}</span>
+                        {% endif %}
+                        <span class="badge badge-muted">{{ feed.item_count }} items</span>
+                    </div>
+                    <h3>{{ feed.name }}</h3>
+                    <p class="muted">{{ feed.base_url }}</p>
+                    {% if feed.last_success_at %}
+                    <p class="muted">Last success: {{ feed.last_success_at }}</p>
+                    {% endif %}
+                    {% if feed.last_error_at %}
+                    <p class="muted">Last error: {{ feed.last_error_at }} {{ feed.last_error_message }}</p>
+                    {% endif %}
+                </div>
+                <div class="article-actions">
+                    <label class="switch-row">
+                        <span>Active</span>
+                        <span class="switch">
+                            <input
+                                type="checkbox"
+                                {% if feed.is_active %}checked{% endif %}
+                                hx-post="/sources/toggle"
+                                hx-trigger="change"
+                                hx-target="#feed-list"
+                                hx-swap="innerHTML"
+                                hx-vals='js:{feed_id: "{{ feed.id }}", is_active: event.target.checked ? "true" : "false"}'
+                            >
+                            <span class="slider"></span>
+                        </span>
+                    </label>
+                    <form
+                        hx-post="/sources/delete"
+                        hx-target="#feed-list"
+                        hx-swap="innerHTML"
+                    >
+                        <input type="hidden" name="feed_id" value="{{ feed.id }}">
+                        <button type="submit" class="danger-button">Delete</button>
+                    </form>
+                </div>
+            </div>
+        </article>
+        {% endfor %}
+    {% else %}
+        <div class="empty-state">No sources configured yet.</div>
+    {% endif %}
+</div>

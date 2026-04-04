@@ -1,0 +1,26 @@
+{% if group %}
+<section class="detail-panel">
+    <div class="detail-block">
+        <h4>Summary</h4>
+        <p>{{ group.summary or "No summary available." }}</p>
+    </div>
+    <div class="detail-block">
+        <h4>Related items</h4>
+        {% if group.related_articles|length > 1 %}
+            <ul class="related-list">
+                {% for related in group.related_articles %}
+                <li>
+                    <strong>{{ related.source_name or "-" }}</strong>
+                    <span>{{ related.title }}</span>
+                    {% if related.published_display %}
+                    <span class="muted">{{ related.published_display }}</span>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="muted">No additional related items.</p>
+        {% endif %}
+    </div>
+</section>
+{% endif %}

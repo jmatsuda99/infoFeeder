@@ -1,0 +1,9 @@
+<div class="article-list">
+    {% if article_groups %}
+        {% for group in article_groups %}
+            {% include "partials/article_card.html" %}
+        {% endfor %}
+    {% else %}
+        <div class="empty-state">No articles matched the current filters.</div>
+    {% endif %}
+</div>

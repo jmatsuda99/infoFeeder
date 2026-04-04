@@ -1,0 +1,111 @@
+{% if group %}
+<article class="article-card" id="article-{{ group.id }}">
+    <div class="article-head">
+        <div>
+            <div class="badges">
+                <span class="badge {% if group.is_read %}badge-read{% else %}badge-unread{% endif %}">
+                    {{ "Read" if group.is_read else "Unread" }}
+                </span>
+                {% if group.is_saved %}
+                <span class="badge badge-saved">Saved</span>
+                {% endif %}
+                {% if group.source_name %}
+                <span class="badge badge-muted">{{ group.source_name }}</span>
+                {% endif %}
+                {% if group.category %}
+                <span class="badge badge-muted">{{ group.category }}</span>
+                {% endif %}
+                {% if group.group_count > 1 %}
+                <span class="badge badge-muted">Grouped {{ group.group_count }}</span>
+                {% endif %}
+            </div>
+            <h3>{{ group.title }}</h3>
+            {% if group.published_display %}
+            <p class="muted">{{ group.published_display }}</p>
+            {% endif %}
+        </div>
+        <div class="article-actions">
+            <button
+                type="button"
+                class="copy-button"
+                data-copy-text="{{ (group.title ~ '\n' ~ group.link)|e }}"
+                onclick="copyArticlePayload(this)"
+            >
+                Copy
+            </button>
+            <label class="switch-row">
+                <span>Read</span>
+                <span class="switch">
+                    <input
+                        type="checkbox"
+                        {% if group.is_read %}checked{% endif %}
+                        hx-post="/articles/read"
+                        hx-trigger="change"
+                        hx-target="#article-{{ group.id }}"
+                        hx-swap="outerHTML"
+                        hx-vals='js:{
+                            article_key_value: "{{ group.article_key }}",
+                            is_read: event.target.checked ? "true" : "false",
+                            keyword: "{{ keyword }}",
+                            read_filter: "{{ read_filter }}",
+                            saved_filter: "{{ saved_filter }}",
+                            sort_order: "{{ sort_order }}",
+                            limit: "{{ limit }}"
+                        }'
+                    >
+                    <span class="slider"></span>
+                </span>
+            </label>
+            <label class="switch-row">
+                <span>Save</span>
+                <span class="switch">
+                    <input
+                        type="checkbox"
+                        {% if group.is_saved %}checked{% endif %}
+                        hx-post="/articles/save"
+                        hx-trigger="change"
+                        hx-target="#article-{{ group.id }}"
+                        hx-swap="outerHTML"
+                        hx-vals='js:{
+                            article_key_value: "{{ group.article_key }}",
+                            is_saved: event.target.checked ? "true" : "false",
+                            keyword: "{{ keyword }}",
+                            read_filter: "{{ read_filter }}",
+                            saved_filter: "{{ saved_filter }}",
+                            sort_order: "{{ sort_order }}",
+                            limit: "{{ limit }}"
+                        }'
+                    >
+                    <span class="slider"></span>
+                </span>
+            </label>
+        </div>
+    </div>
+
+    <div class="article-link">
+        {% if group.link %}
+        <a href="{{ group.link }}" target="_blank" rel="noreferrer">{{ group.link }}</a>
+        {% endif %}
+    </div>
+
+    <div class="detail-shell">
+        <label class="switch-row detail-row">
+            <span>Detail</span>
+            <span class="switch">
+                <input
+                    type="checkbox"
+                    hx-on:change="
+                        if (this.checked) {
+                            htmx.ajax('GET', '/articles/detail?article_id={{ group.id }}', {target:'#detail-{{ group.id }}', swap:'innerHTML'});
+                        } else {
+                            document.getElementById('detail-{{ group.id }}').innerHTML = '';
+                        }
+                    "
+                >
+                <span class="slider"></span>
+            </span>
+        </label>
+        <div id="detail-{{ group.id }}"></div>
+    </div>
+</article>
+{% endif %}

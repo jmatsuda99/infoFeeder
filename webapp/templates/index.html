@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>infoFeeder Web</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script>
+        async function copyArticlePayload(button) {
+            const payload = button.dataset.copyText || "";
+            const originalLabel = button.textContent;
+            try {
+                await navigator.clipboard.writeText(payload);
+                button.textContent = "Copied";
+            } catch (error) {
+                button.textContent = "Failed";
+            }
+            window.setTimeout(() => {
+                button.textContent = originalLabel;
+            }, 1200);
+        }
+    </script>
+</head>
+<body>
+    <main class="page">
+        <section class="hero">
+            <div class="hero-row">
+                <div>
+                    <h1>infoFeeder Web</h1>
+                    <p>Version {{ app_version }}</p>
+                </div>
+                <nav class="top-nav">
+                    <a class="nav-link is-active" href="/">Articles</a>
+                    <a class="nav-link" href="/sources">Sources</a>
+                </nav>
+            </div>
+        </section>
+
+        <section class="metrics">
+            <article class="metric-card">
+                <span class="metric-label">Sources</span>
+                <strong>{{ metrics.active_sources }}</strong>
+                <span class="metric-sub">of {{ metrics.total_sources }}</span>
+            </article>
+            <article class="metric-card">
+                <span class="metric-label">Unread groups</span>
+                <strong>{{ metrics.unread_articles }}</strong>
+            </article>
+            <article class="metric-card">
+                <span class="metric-label">Latest success</span>
+                <strong>{{ metrics.latest_success_at or "-" }}</strong>
+            </article>
+            <article class="metric-card">
+                <span class="metric-label">Error feeds</span>
+                <strong>{{ metrics.error_feed_count }}</strong>
+            </article>
+        </section>
+
+        <section class="panel">
+            <form
+                class="filters"
+                hx-get="/articles/list"
+                hx-target="#article-list"
+                hx-swap="innerHTML"
+            >
+                <input type="text" name="keyword" value="{{ keyword }}" placeholder="Keyword">
+                <select name="read_filter">
+                    <option value="all" {% if read_filter == "all" %}selected{% endif %}>All</option>
+                    <option value="unread" {% if read_filter == "unread" %}selected{% endif %}>Unread</option>
+                    <option value="read" {% if read_filter == "read" %}selected{% endif %}>Read</option>
+                </select>
+                <select name="saved_filter">
+                    <option value="all" {% if saved_filter == "all" %}selected{% endif %}>All saved states</option>
+                    <option value="saved" {% if saved_filter == "saved" %}selected{% endif %}>Saved only</option>
+                </select>
+                <select name="sort_order">
+                    <option value="newest" {% if sort_order == "newest" %}selected{% endif %}>Newest</option>
+                    <option value="oldest" {% if sort_order == "oldest" %}selected{% endif %}>Oldest</option>
+                    <option value="saved" {% if sort_order == "saved" %}selected{% endif %}>Saved first</option>
+                </select>
+                <input type="number" name="limit" min="1" max="100" value="{{ limit }}">
+                <button type="submit">Apply filters</button>
+            </form>
+        </section>
+
+        <section id="article-list">
+            {% include "partials/article_list.html" %}
+        </section>
+    </main>
+</body>
+</html>

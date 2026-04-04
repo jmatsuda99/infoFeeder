@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>infoFeeder Web</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+</head>
+<body>
+    <main class="page">
+        <section class="hero">
+            <div class="hero-row">
+                <div>
+                    <h1>infoFeeder Web</h1>
+                    <p>Version {{ app_version }}</p>
+                </div>
+                <nav class="top-nav">
+                    <a class="nav-link" href="/">Articles</a>
+                    <a class="nav-link is-active" href="/sources">Sources</a>
+                </nav>
+            </div>
+        </section>
+
+        <section class="panel">
+            <form method="post" action="/sources/add" class="filters">
+                <input type="text" name="name" placeholder="Source name">
+                <input type="text" name="url" placeholder="Source URL">
+                <input type="text" name="category" placeholder="Category">
+                <div></div>
+                <div></div>
+                <button type="submit">Add source</button>
+            </form>
+            {% if success_message %}
+            <p class="success-text">{{ success_message }}</p>
+            {% endif %}
+            {% if error_message %}
+            <p class="error-text">{{ error_message }}</p>
+            {% endif %}
+        </section>
+
+        <section id="feed-list">
+            {% include "partials/feed_list.html" %}
+        </section>
+    </main>
+</body>
+</html>
