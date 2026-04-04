@@ -43,6 +43,10 @@ body {
     margin-bottom: 18px;
 }
 
+.fetch-actions {
+    margin-bottom: 12px;
+}
+
 .hero-row {
     display: flex;
     align-items: center;
@@ -97,6 +101,7 @@ body {
 .filters input,
 .filters select,
 .filters button,
+.fetch-actions button,
 .secondary-button {
     min-height: 40px;
     border-radius: 10px;
@@ -105,6 +110,7 @@ body {
 }
 
 .filters button,
+.fetch-actions button,
 .secondary-button {
     background: #f8fafc;
     color: var(--text);

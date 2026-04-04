@@ -6,6 +6,15 @@
     <title>infoFeeder Web</title>
     <link rel="stylesheet" href="/static/app.css">
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script>
+        window.setTimeout(async () => {
+            try {
+                await fetch("/articles/auto-fetch", { method: "POST" });
+            } finally {
+                window.location.reload();
+            }
+        }, {{ next_auto_fetch_delay_ms }});
+    </script>
 </head>
 <body>
     <main class="page">

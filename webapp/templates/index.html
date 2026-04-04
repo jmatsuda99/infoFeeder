@@ -20,6 +20,14 @@
                 button.textContent = originalLabel;
             }, 1200);
         }
+
+        window.setTimeout(async () => {
+            try {
+                await fetch("/articles/auto-fetch", { method: "POST" });
+            } finally {
+                window.location.reload();
+            }
+        }, {{ next_auto_fetch_delay_ms }});
     </script>
 </head>
 <body>
@@ -58,11 +66,27 @@
         </section>
 
         <section class="panel">
+            <form method="post" action="/articles/fetch" class="fetch-actions">
+                <input type="hidden" name="keyword" value="{{ keyword }}">
+                <input type="hidden" name="read_filter" value="{{ read_filter }}">
+                <input type="hidden" name="saved_filter" value="{{ saved_filter }}">
+                <input type="hidden" name="sort_order" value="{{ sort_order }}">
+                <input type="hidden" name="limit" value="{{ limit }}">
+                <button type="submit">Fetch articles now</button>
+            </form>
+            {% if fetch_message %}
+            <p class="success-text">{{ fetch_message }}</p>
+            {% endif %}
+            {% if fetch_error %}
+            <p class="error-text">{{ fetch_error }}</p>
+            {% endif %}
+
             <form
                 class="filters"
                 hx-get="/articles/list"
                 hx-target="#article-list"
                 hx-swap="innerHTML"
+                onsubmit="history.replaceState(null, '', '/?' + new URLSearchParams(new FormData(this)).toString())"
             >
                 <input type="text" name="keyword" value="{{ keyword }}" placeholder="Keyword">
                 <select name="read_filter">

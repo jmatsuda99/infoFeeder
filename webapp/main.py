@@ -1,7 +1,8 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -9,14 +10,16 @@ from article_utils import article_key
 from db import (
     add_feed,
     delete_feed,
+    get_app_state,
     get_summary_metrics_row,
     list_articles,
     list_feeds,
+    set_app_state,
     update_feed_status,
     update_article_read_status,
     update_article_saved_status,
 )
-from fetcher import discover_feed_source
+from fetcher import discover_feed_source, fetch_active_feeds
 from ui_common import format_jst_datetime
 from version import APP_VERSION
 
@@ -26,6 +29,91 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 app = FastAPI(title="infoFeeder Web", debug=True)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+AUTO_FETCH_SLOT_KEY = "last_auto_fetch_slot"
+
+
+def get_next_half_hour(now):
+    next_half_hour = now.replace(second=0, microsecond=0)
+    if now.minute < 30:
+        return next_half_hour.replace(minute=30)
+    return (next_half_hour + timedelta(hours=1)).replace(minute=0)
+
+
+def get_next_auto_fetch_delay_ms(now):
+    next_fetch_at = get_next_half_hour(now)
+    return max(1000, int((next_fetch_at - now).total_seconds() * 1000) + 1000)
+
+
+def maybe_run_auto_fetch(now):
+    if now.minute not in (0, 30):
+        return 0
+
+    current_slot = now.strftime("%Y-%m-%dT%H:%M")
+    if get_app_state(AUTO_FETCH_SLOT_KEY, "") == current_slot:
+        return 0
+
+    inserted_count = fetch_active_feeds()
+    set_app_state(AUTO_FETCH_SLOT_KEY, current_slot)
+    return inserted_count
+
+
+def build_index_context(
+    request: Request,
+    *,
+    keyword: str = "",
+    read_filter: str = "all",
+    saved_filter: str = "all",
+    sort_order: str = "newest",
+    limit: int = 50,
+    fetch_message: str = "",
+    fetch_error: str = "",
+):
+    now = datetime.now()
+    return {
+        "request": request,
+        "app_version": APP_VERSION,
+        "metrics": get_summary_metrics_row(),
+        "article_groups": get_article_groups(keyword, read_filter, saved_filter, sort_order, limit),
+        "keyword": keyword,
+        "read_filter": read_filter,
+        "saved_filter": saved_filter,
+        "sort_order": sort_order,
+        "limit": limit,
+        "fetch_message": fetch_message,
+        "fetch_error": fetch_error,
+        "next_auto_fetch_delay_ms": get_next_auto_fetch_delay_ms(now),
+    }
+
+
+def render_index_template(request: Request, **context):
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        build_index_context(request, **context),
+    )
+
+
+def build_sources_context(request: Request, *, error_message: str = "", success_message: str = ""):
+    return {
+        "request": request,
+        "app_version": APP_VERSION,
+        "feeds": get_feed_rows(),
+        "error_message": error_message,
+        "success_message": success_message,
+        "next_auto_fetch_delay_ms": get_next_auto_fetch_delay_ms(datetime.now()),
+    }
+
+
+def render_sources_template(request: Request, *, error_message: str = "", success_message: str = ""):
+    return templates.TemplateResponse(
+        request,
+        "sources.html",
+        build_sources_context(
+            request,
+            error_message=error_message,
+            success_message=success_message,
+        ),
+    )
 
 
 def prepare_article_dataframe(keyword):
@@ -137,23 +225,18 @@ def index(
     saved_filter: str = "all",
     sort_order: str = "newest",
     limit: int = 50,
+    fetch_message: str = "",
+    fetch_error: str = "",
 ):
-    metrics = get_summary_metrics_row()
-    article_groups = get_article_groups(keyword, read_filter, saved_filter, sort_order, limit)
-    return templates.TemplateResponse(
+    return render_index_template(
         request,
-        "index.html",
-        {
-            "request": request,
-            "app_version": APP_VERSION,
-            "metrics": metrics,
-            "article_groups": article_groups,
-            "keyword": keyword,
-            "read_filter": read_filter,
-            "saved_filter": saved_filter,
-            "sort_order": sort_order,
-            "limit": limit,
-        },
+        keyword=keyword,
+        read_filter=read_filter,
+        saved_filter=saved_filter,
+        sort_order=sort_order,
+        limit=limit,
+        fetch_message=fetch_message,
+        fetch_error=fetch_error,
     )
 
 
@@ -191,6 +274,42 @@ def article_detail(request: Request, article_id: int):
         "partials/article_detail.html",
         {"request": request, "group": group, "app_version": APP_VERSION},
     )
+
+
+@app.post("/articles/fetch", response_class=HTMLResponse)
+def fetch_articles_now(
+    request: Request,
+    keyword: str = Form(""),
+    read_filter: str = Form("all"),
+    saved_filter: str = Form("all"),
+    sort_order: str = Form("newest"),
+    limit: int = Form(50),
+):
+    fetch_message = ""
+    fetch_error = ""
+
+    try:
+        inserted_count = fetch_active_feeds()
+        fetch_message = f"Fetch completed. {inserted_count} new articles were added."
+    except Exception as error:
+        fetch_error = f"Fetch failed: {error}"
+
+    return render_index_template(
+        request,
+        keyword=keyword,
+        read_filter=read_filter,
+        saved_filter=saved_filter,
+        sort_order=sort_order,
+        limit=limit,
+        fetch_message=fetch_message,
+        fetch_error=fetch_error,
+    )
+
+
+@app.post("/articles/auto-fetch")
+def auto_fetch_articles():
+    maybe_run_auto_fetch(datetime.now())
+    return Response(status_code=204)
 
 
 @app.post("/articles/read", response_class=HTMLResponse)
@@ -255,17 +374,7 @@ def update_saved(
 
 @app.get("/sources", response_class=HTMLResponse)
 def sources(request: Request):
-    return templates.TemplateResponse(
-        request,
-        "sources.html",
-        {
-            "request": request,
-            "app_version": APP_VERSION,
-            "feeds": get_feed_rows(),
-            "error_message": "",
-            "success_message": "",
-        },
-    )
+    return render_sources_template(request)
 
 
 @app.post("/sources/add", response_class=HTMLResponse)
@@ -297,16 +406,10 @@ def add_source(
         except Exception as error:
             error_message = f"Failed to add source: {error}"
 
-    return templates.TemplateResponse(
+    return render_sources_template(
         request,
-        "sources.html",
-        {
-            "request": request,
-            "app_version": APP_VERSION,
-            "feeds": get_feed_rows(),
-            "error_message": error_message,
-            "success_message": success_message,
-        },
+        error_message=error_message,
+        success_message=success_message,
     )
 
 
