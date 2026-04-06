@@ -23,8 +23,10 @@ def configure_conn(conn):
     return conn
 
 
-def is_locked_error(error):
-    return "database is locked" in str(error).lower()
+def is_retryable_error(error):
+    msg = str(error).lower()
+    # ロックだけでなく、スリープ復帰時に起きやすい I/O エラーやファイルオープン失敗もリトライ対象にする
+    return "locked" in msg or "busy" in msg or "disk i/o error" in msg or "unable to open database file" in msg
 
 
 def run_with_retry(action, *, retries=DB_RETRY_ATTEMPTS, delay=DB_RETRY_DELAY_SECONDS):
@@ -33,7 +35,7 @@ def run_with_retry(action, *, retries=DB_RETRY_ATTEMPTS, delay=DB_RETRY_DELAY_SE
         try:
             return action()
         except sqlite3.OperationalError as error:
-            if not is_locked_error(error):
+            if not is_retryable_error(error):
                 raise
             last_error = error
             if attempt == retries - 1:
@@ -43,10 +45,12 @@ def run_with_retry(action, *, retries=DB_RETRY_ATTEMPTS, delay=DB_RETRY_DELAY_SE
 
 
 def get_conn():
-    DATA_DIR.mkdir(exist_ok=True)
-    return run_with_retry(
-        lambda: configure_conn(sqlite3.connect(str(DB_PATH), timeout=DB_TIMEOUT_SECONDS))
-    )
+    def _connect():
+        # ディレクトリ作成もリトライに含める（ドライブ未マウント対策）
+        DATA_DIR.mkdir(exist_ok=True)
+        return configure_conn(sqlite3.connect(str(DB_PATH), timeout=DB_TIMEOUT_SECONDS))
+
+    return run_with_retry(_connect)
 
 def init_db():
     def _init():
@@ -404,6 +408,35 @@ def list_articles(keyword=""):
     df = pd.read_sql_query(query, conn, params=params)
     conn.close()
     return df
+
+
+def get_item_with_feed_by_id(item_id):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        row = cur.execute(
+            """
+            SELECT
+                i.id as id,
+                i.published as published,
+                COALESCE(f.category, '') as category,
+                COALESCE(f.name, '') as source_name,
+                COALESCE(i.article_key, '') as article_key,
+                COALESCE(i.is_read, 0) as is_read,
+                COALESCE(i.is_saved, 0) as is_saved,
+                COALESCE(i.saved_at, '') as saved_at,
+                i.link as link,
+                COALESCE(i.title, '') as title,
+                COALESCE(i.summary, '') as summary
+            FROM items i
+            JOIN feeds f ON i.feed_id = f.id
+            WHERE i.id = ?
+            """,
+            (item_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
 
 
 def list_articles_by_key(article_key_value):

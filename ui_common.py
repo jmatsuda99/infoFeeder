@@ -215,13 +215,21 @@ def get_next_half_hour(now):
 
 
 def render_scheduled_reload(next_fetch_at, now):
-    delay_ms = max(1000, int((next_fetch_at - now).total_seconds() * 1000) + 1000)
+    target_timestamp_ms = int(next_fetch_at.timestamp() * 1000)
     components.html(
         f"""
         <script>
-        setTimeout(() => {{
-            window.parent.location.reload();
-        }}, {delay_ms});
+        const targetTime = {target_timestamp_ms};
+        const checkAndReload = () => {{
+            if (Date.now() >= targetTime) {{
+                // スリープ復帰直後の不安定な時間を考慮し、2秒待ってからリロード
+                setTimeout(() => window.parent.location.reload(), 2000);
+            }} else {{
+                // 5秒おきにチェック（スリープ中の時間経過を検知可能にする）
+                setTimeout(checkAndReload, 5000);
+            }}
+        }};
+        checkAndReload();
         </script>
         """,
         height=0,

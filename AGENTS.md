@@ -5,3 +5,4 @@
 - Do not rename files or move modules unless necessary.
 - Ask before adding or changing major dependencies.
 - Explain which files were changed and how to verify the result.
+- Git: run `.\scripts\setup_git_hooks.ps1` once per clone so `VERSION` bumps automatically after each commit (see `scripts/post_commit_version.py`).

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Auto-bump VERSION from the last commit message (see scripts/post_commit_version.py).
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$REPO_ROOT" || exit 0
+exec python "$REPO_ROOT/scripts/post_commit_version.py"

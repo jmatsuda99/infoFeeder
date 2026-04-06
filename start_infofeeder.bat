@@ -15,6 +15,6 @@ if not exist "launcher.py" (
     exit /b 1
 )
 
-"%~dp0.venv\Scripts\python.exe" "%~dp0launcher.py" open
+"%~dp0.venv\Scripts\python.exe" "%~dp0launcher.py" open-web
 
 endlocal
