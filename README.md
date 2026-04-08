@@ -2,19 +2,12 @@
 
 `infoFeeder` is a local news/source tracking tool built around Google Alerts, RSS/Atom feeds, and simple HTML listing sources.
 
-The repository currently contains two UIs:
-
-- **Streamlit** app: legacy UI, still available
-- **FastAPI + HTMX** web app: primary UI with partial updates and responsive interactions
-
-## Current recommendation
-
-Use the **FastAPI + HTMX** app first.
+The UI is a **FastAPI + HTMX** web app (partial updates, responsive interactions).
 
 - URL: `http://127.0.0.1:8510`
 - Main pages: **Articles**, **Sources**
 
-Streamlit remains at `http://localhost:8502` for parity; new UI work targets `webapp/`.
+The legacy **Streamlit** UI has been removed; all behavior lives under `webapp/` and shared modules (`db.py`, `fetcher.py`, etc.).
 
 ## Version
 
@@ -42,7 +35,7 @@ Install dependencies:
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-### FastAPI + HTMX app
+### Web app
 
 Start (includes **uvicorn `--reload`** for `.py` changes):
 
@@ -56,29 +49,28 @@ Open:
 http://127.0.0.1:8510
 ```
 
-### Streamlit app
-
-Start:
-
-```powershell
-.\.venv\Scripts\python.exe launcher.py open
-```
-
-Open:
-
-```text
-http://localhost:8502
-```
-
 ### Launcher (browser + background server)
 
-From the repo root, **default** command starts the **web** app and opens Chrome/Edge (or the default browser) when ready:
+Default command (no args) or **`open-web`** starts the web app and opens Chrome/Edge (or the default browser) when ready (**stable mode**, no code reloader):
 
 ```powershell
+.\.venv\Scripts\python.exe launcher.py
 .\.venv\Scripts\python.exe launcher.py open-web
 ```
 
-`launcher.py open` starts Streamlit the same way. **`start_infofeeder.bat`** calls `open-web`.
+**`launcher.py open`** is an alias for **`open-web`** (kept for older scripts). **`start_infofeeder.bat`** calls `open-web`.
+
+Development mode (auto-reload on `.py` changes):
+
+```powershell
+.\.venv\Scripts\python.exe launcher.py open-web-dev
+```
+
+Foreground server only (no browser):
+
+```powershell
+.\.venv\Scripts\python.exe launcher.py serve-web
+```
 
 ### Desktop shortcut (Windows)
 
@@ -94,11 +86,10 @@ To place the shortcut in the repo folder only, run without `-Desktop`. `*.lnk` i
 
 | Area | Path |
 |------|------|
-| Streamlit entry | [`app.py`](./app.py) |
-| Streamlit views | [`articles_view.py`](./articles_view.py), [`source_setup_view.py`](./source_setup_view.py), [`summary_view.py`](./summary_view.py) |
 | SQLite / queries | [`db.py`](./db.py) |
 | Fetching / ingestion | [`fetcher.py`](./fetcher.py) |
 | URLs / grouping keys | [`article_utils.py`](./article_utils.py) |
+| JST time display | [`jst_format.py`](./jst_format.py) |
 | Version helper | [`version.py`](./version.py) (`read_app_version()`) |
 | Web FastAPI app | [`webapp/main.py`](./webapp/main.py) |
 | Web routes | [`webapp/routes/articles.py`](./webapp/routes/articles.py), [`webapp/routes/sources.py`](./webapp/routes/sources.py) |
@@ -106,7 +97,7 @@ To place the shortcut in the repo folder only, run without `-Desktop`. `*.lnk` i
 | Jinja templates | [`webapp/templates/`](./webapp/templates) |
 | Web CSS | [`webapp/static/app.css`](./webapp/static/app.css) |
 | Uvicorn entry | [`run_web.py`](./run_web.py) |
-| Windows launcher | [`launcher.py`](./launcher.py), [`start_infofeeder.bat`](./start_infofeeder.bat), [`start_infofeeder.vbs`](./start_infofeeder.vbs) |
+| Windows launcher | [`launcher.py`](./launcher.py), [`launcher_config.py`](./launcher_config.py), [`launcher_runtime.py`](./launcher_runtime.py), [`start_infofeeder.bat`](./start_infofeeder.bat), [`start_infofeeder.vbs`](./start_infofeeder.vbs) |
 
 ## Data
 
@@ -117,16 +108,14 @@ SQLite database (local, not committed by default):
 Other runtime files may include:
 
 - `data/fetch.lock`
-- `streamlit.out.log`, `streamlit.err.log`
 - `webapp_stdout.log`, `webapp_stderr.log`
 
 ## Dependencies
 
-See [`requirements.txt`](./requirements.txt) (includes `streamlit`, `feedparser`, `pandas`, `fastapi`, `uvicorn`, `jinja2`, `python-multipart`).
+See [`requirements.txt`](./requirements.txt) (`feedparser`, `pandas`, `fastapi`, `uvicorn`, `jinja2`, `python-multipart`).
 
 ## Notes
 
 - Article grouping uses normalized primary-source URLs when available.
 - The web app uses **HTMX** for partial page updates (e.g. article list, read/save toggles, scheduled fetch refresh without a full reload).
 - Jinja templates use **`auto_reload`** in development; `/static` responses use **no-cache** headers so CSS changes show up after a normal browser refresh.
-- Further migration can move more behavior from Streamlit into `webapp/`.

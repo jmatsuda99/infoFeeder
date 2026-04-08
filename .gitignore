@@ -10,8 +10,6 @@ data/*.db-shm
 data/fetch.lock
 
 # Local logs
-streamlit.out.log
-streamlit.err.log
 webapp_stdout.log
 webapp_stderr.log
 

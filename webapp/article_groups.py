@@ -2,7 +2,7 @@ import pandas as pd
 
 from article_utils import article_key
 from db import get_item_with_feed_by_id, list_articles, list_articles_by_key
-from ui_common import format_jst_datetime
+from jst_format import format_jst_datetime
 
 
 def prepare_article_dataframe(keyword):

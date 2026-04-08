@@ -1,5 +1,5 @@
 from db import list_feeds
-from ui_common import format_jst_datetime
+from jst_format import format_jst_datetime
 
 
 def get_feed_rows():

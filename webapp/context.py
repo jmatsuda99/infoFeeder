@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import Request
 
 from db import get_summary_metrics_row
-from ui_common import format_jst_datetime
+from jst_format import format_jst_datetime
 from version import read_app_version
 
 from webapp.article_groups import get_article_groups
