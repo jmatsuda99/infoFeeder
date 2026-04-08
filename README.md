@@ -22,8 +22,10 @@ The legacy **Streamlit** UI has been removed; all behavior lives under `webapp/`
 - Group duplicate articles by primary-source URL
 - Mark grouped articles as read; save / unsave
 - Open article detail panels; copy title + URL to the clipboard
-- Manage sources on the **Sources** page
+- Manage sources on the **Sources** page; **export sources as OPML** for backup or other readers
 - Show application version in the web UI
+- **Scheduled fetch** at local clock **:00** and **:30** (browser tab open), then refresh article or feed lists via HTMX
+- After a scheduled fetch, **summary metrics** (sources, unread groups, latest success, error feeds) stay in sync with the article list
 
 ## Run
 
@@ -93,6 +95,8 @@ To place the shortcut in the repo folder only, run without `-Desktop`. `*.lnk` i
 | Version helper | [`version.py`](./version.py) (`read_app_version()`) |
 | Web FastAPI app | [`webapp/main.py`](./webapp/main.py) |
 | Web routes | [`webapp/routes/articles.py`](./webapp/routes/articles.py), [`webapp/routes/sources.py`](./webapp/routes/sources.py) |
+| Scheduled fetch (server slot + client timer) | [`webapp/auto_fetch.py`](./webapp/auto_fetch.py), [`webapp/static/half_hour_auto_fetch.js`](./webapp/static/half_hour_auto_fetch.js) |
+| OPML export | [`webapp/opml_export.py`](./webapp/opml_export.py) |
 | Article grouping (web) | [`webapp/article_groups.py`](./webapp/article_groups.py) |
 | Jinja templates | [`webapp/templates/`](./webapp/templates) |
 | Web CSS | [`webapp/static/app.css`](./webapp/static/app.css) |
@@ -118,4 +122,5 @@ See [`requirements.txt`](./requirements.txt) (`feedparser`, `pandas`, `fastapi`,
 
 - Article grouping uses normalized primary-source URLs when available.
 - The web app uses **HTMX** for partial page updates (e.g. article list, read/save toggles, scheduled fetch refresh without a full reload).
+- **OPML:** `GET /sources/opml` returns `infofeeder-sources.opml` (attachment). The **Sources** page links to the same URL.
 - Jinja templates use **`auto_reload`** in development; `/static` responses use **no-cache** headers so CSS changes show up after a normal browser refresh.

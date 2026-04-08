@@ -1,0 +1,19 @@
+<section id="metrics-strip" class="metrics">
+    <article class="metric-card">
+        <span class="metric-label">Sources</span>
+        <strong>{{ metrics.active_sources }}</strong>
+        <span class="metric-sub">of {{ metrics.total_sources }}</span>
+    </article>
+    <article class="metric-card">
+        <span class="metric-label">Unread groups</span>
+        <strong>{{ metrics.unread_articles }}</strong>
+    </article>
+    <article class="metric-card">
+        <span class="metric-label">Latest success</span>
+        <strong>{{ metrics.latest_success_at or "-" }}</strong>
+    </article>
+    <article class="metric-card">
+        <span class="metric-label">Error feeds</span>
+        <strong>{{ metrics.error_feed_count }}</strong>
+    </article>
+</section>

@@ -47,6 +47,21 @@ body {
     margin-bottom: 12px;
 }
 
+.panel-export {
+    margin: 0 0 14px;
+}
+
+.export-opml-link {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(33, 65, 93, 0.35);
+}
+
+.export-opml-link:hover {
+    border-bottom-color: var(--accent);
+}
+
 .hero-row {
     display: flex;
     align-items: center;

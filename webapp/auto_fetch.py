@@ -1,21 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from db import get_app_state, set_app_state
 from fetcher import fetch_active_feeds
 
 AUTO_FETCH_SLOT_KEY = "last_auto_fetch_slot"
-
-
-def get_next_half_hour(now):
-    next_half_hour = now.replace(second=0, microsecond=0)
-    if now.minute < 30:
-        return next_half_hour.replace(minute=30)
-    return (next_half_hour + timedelta(hours=1)).replace(minute=0)
-
-
-def get_next_auto_fetch_delay_ms(now):
-    next_fetch_at = get_next_half_hour(now)
-    return max(1000, int((next_fetch_at - now).total_seconds() * 1000) + 1000)
 
 
 def maybe_run_auto_fetch(now):

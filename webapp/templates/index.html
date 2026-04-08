@@ -6,6 +6,7 @@
     <title>infoFeeder Web</title>
     <link rel="stylesheet" href="/static/app.css">
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="/static/half_hour_auto_fetch.js"></script>
     <script>
         async function copyArticlePayload(button) {
             const payload = button.dataset.copyText || "";
@@ -21,12 +22,7 @@
             }, 1200);
         }
 
-        window.setTimeout(async () => {
-            try {
-                await fetch("/articles/auto-fetch", { method: "POST" });
-            } catch (error) {
-                console.warn("auto-fetch", error);
-            }
+        infoFeederScheduleHalfHourAutoFetch(function () {
             const form = document.querySelector("form.filters");
             if (form && window.htmx) {
                 const query = new URLSearchParams(new FormData(form)).toString();
@@ -34,8 +30,12 @@
                     target: "#article-list",
                     swap: "innerHTML",
                 });
+                window.htmx.ajax("GET", "/articles/metrics", {
+                    target: "#metrics-strip",
+                    swap: "outerHTML",
+                });
             }
-        }, {{ next_auto_fetch_delay_ms }});
+        });
     </script>
 </head>
 <body>
@@ -53,25 +53,7 @@
             </div>
         </section>
 
-        <section class="metrics">
-            <article class="metric-card">
-                <span class="metric-label">Sources</span>
-                <strong>{{ metrics.active_sources }}</strong>
-                <span class="metric-sub">of {{ metrics.total_sources }}</span>
-            </article>
-            <article class="metric-card">
-                <span class="metric-label">Unread groups</span>
-                <strong>{{ metrics.unread_articles }}</strong>
-            </article>
-            <article class="metric-card">
-                <span class="metric-label">Latest success</span>
-                <strong>{{ metrics.latest_success_at or "-" }}</strong>
-            </article>
-            <article class="metric-card">
-                <span class="metric-label">Error feeds</span>
-                <strong>{{ metrics.error_feed_count }}</strong>
-            </article>
-        </section>
+        {% include "partials/metrics_strip.html" %}
 
         <section class="panel">
             <form method="post" action="/articles/fetch" class="fetch-actions">

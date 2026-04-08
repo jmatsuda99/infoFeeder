@@ -6,20 +6,16 @@
     <title>infoFeeder Web</title>
     <link rel="stylesheet" href="/static/app.css">
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script src="/static/half_hour_auto_fetch.js"></script>
     <script>
-        window.setTimeout(async () => {
-            try {
-                await fetch("/articles/auto-fetch", { method: "POST" });
-            } catch (error) {
-                console.warn("auto-fetch", error);
-            }
+        infoFeederScheduleHalfHourAutoFetch(function () {
             if (window.htmx) {
                 window.htmx.ajax("GET", "/sources/feed-list", {
                     target: "#feed-list",
                     swap: "innerHTML",
                 });
             }
-        }, {{ next_auto_fetch_delay_ms }});
+        });
     </script>
 </head>
 <body>
@@ -38,6 +34,9 @@
         </section>
 
         <section class="panel">
+            <p class="panel-export">
+                <a href="/sources/opml" class="export-opml-link">Export sources as OPML</a>
+            </p>
             <form method="post" action="/sources/add" class="filters">
                 <input type="text" name="name" placeholder="Source name">
                 <input type="text" name="url" placeholder="Source URL">

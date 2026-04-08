@@ -13,7 +13,7 @@ from webapp.article_groups import (
     get_article_groups,
 )
 from webapp.auto_fetch import maybe_run_auto_fetch
-from webapp.context import render_index_template
+from webapp.context import get_formatted_metrics, render_index_template
 from webapp.deps import templates
 
 router = APIRouter()
@@ -92,6 +92,18 @@ def index(
         limit=limit,
         fetch_message=fetch_message,
         fetch_error=fetch_error,
+    )
+
+
+@router.get("/articles/metrics", response_class=HTMLResponse)
+def article_metrics(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "partials/metrics_strip.html",
+        {
+            "request": request,
+            "metrics": get_formatted_metrics(),
+        },
     )
 
 

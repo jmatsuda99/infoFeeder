@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from fastapi import Request
 
 from db import get_summary_metrics_row
@@ -7,9 +5,23 @@ from jst_format import format_jst_datetime
 from version import read_app_version
 
 from webapp.article_groups import get_article_groups
-from webapp.auto_fetch import get_next_auto_fetch_delay_ms
 from webapp.deps import templates
 from webapp.feeds_display import get_feed_rows
+
+
+def get_formatted_metrics():
+    metrics = get_summary_metrics_row()
+    metrics["latest_success_at"] = (
+        format_jst_datetime(metrics["latest_success_at"], include_date=True)
+        if metrics["latest_success_at"]
+        else ""
+    )
+    metrics["latest_error_at"] = (
+        format_jst_datetime(metrics["latest_error_at"], include_date=True)
+        if metrics["latest_error_at"]
+        else ""
+    )
+    return metrics
 
 
 def build_index_context(
@@ -23,22 +35,10 @@ def build_index_context(
     fetch_message: str = "",
     fetch_error: str = "",
 ):
-    now = datetime.now()
-    metrics = get_summary_metrics_row()
-    metrics["latest_success_at"] = (
-        format_jst_datetime(metrics["latest_success_at"], include_date=True)
-        if metrics["latest_success_at"]
-        else ""
-    )
-    metrics["latest_error_at"] = (
-        format_jst_datetime(metrics["latest_error_at"], include_date=True)
-        if metrics["latest_error_at"]
-        else ""
-    )
     return {
         "request": request,
         "app_version": read_app_version(),
-        "metrics": metrics,
+        "metrics": get_formatted_metrics(),
         "article_groups": get_article_groups(keyword, read_filter, saved_filter, sort_order, limit),
         "keyword": keyword,
         "read_filter": read_filter,
@@ -47,7 +47,6 @@ def build_index_context(
         "limit": limit,
         "fetch_message": fetch_message,
         "fetch_error": fetch_error,
-        "next_auto_fetch_delay_ms": get_next_auto_fetch_delay_ms(now),
     }
 
 
@@ -66,7 +65,6 @@ def build_sources_context(request: Request, *, error_message: str = "", success_
         "feeds": get_feed_rows(),
         "error_message": error_message,
         "success_message": success_message,
-        "next_auto_fetch_delay_ms": get_next_auto_fetch_delay_ms(datetime.now()),
     }
 
 

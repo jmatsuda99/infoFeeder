@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from db import add_feed, delete_feed, update_feed_status
 from fetcher import discover_feed_source
@@ -8,6 +8,7 @@ from version import read_app_version
 from webapp.context import render_sources_template
 from webapp.deps import templates
 from webapp.feeds_display import get_feed_rows
+from webapp.opml_export import build_opml_bytes
 
 router = APIRouter()
 
@@ -15,6 +16,17 @@ router = APIRouter()
 @router.get("/sources", response_class=HTMLResponse)
 def sources(request: Request):
     return render_sources_template(request)
+
+
+@router.get("/sources/opml")
+def export_sources_opml():
+    return Response(
+        content=build_opml_bytes(),
+        media_type="application/xml; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="infofeeder-sources.opml"',
+        },
+    )
 
 
 @router.get("/sources/feed-list", response_class=HTMLResponse)
