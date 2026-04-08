@@ -4,7 +4,7 @@ from fastapi import Request
 
 from db import get_summary_metrics_row
 from ui_common import format_jst_datetime
-from version import APP_VERSION
+from version import read_app_version
 
 from webapp.article_groups import get_article_groups
 from webapp.auto_fetch import get_next_auto_fetch_delay_ms
@@ -37,7 +37,7 @@ def build_index_context(
     )
     return {
         "request": request,
-        "app_version": APP_VERSION,
+        "app_version": read_app_version(),
         "metrics": metrics,
         "article_groups": get_article_groups(keyword, read_filter, saved_filter, sort_order, limit),
         "keyword": keyword,
@@ -62,7 +62,7 @@ def render_index_template(request: Request, **context):
 def build_sources_context(request: Request, *, error_message: str = "", success_message: str = ""):
     return {
         "request": request,
-        "app_version": APP_VERSION,
+        "app_version": read_app_version(),
         "feeds": get_feed_rows(),
         "error_message": error_message,
         "success_message": success_message,

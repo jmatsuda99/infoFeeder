@@ -10,8 +10,14 @@
         window.setTimeout(async () => {
             try {
                 await fetch("/articles/auto-fetch", { method: "POST" });
-            } finally {
-                window.location.reload();
+            } catch (error) {
+                console.warn("auto-fetch", error);
+            }
+            if (window.htmx) {
+                window.htmx.ajax("GET", "/sources/feed-list", {
+                    target: "#feed-list",
+                    swap: "innerHTML",
+                });
             }
         }, {{ next_auto_fetch_delay_ms }});
     </script>

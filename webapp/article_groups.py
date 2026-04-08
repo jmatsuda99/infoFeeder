@@ -46,13 +46,13 @@ def build_article_groups(df):
                 "group_count": int(len(sorted_group)),
                 "related_articles": [
                     {
-                        "id": int(row["id"]),
-                        "title": row["title"] or "(no title)",
-                        "link": row["link"] or "",
-                        "source_name": row["source_name"] or "",
-                        "published_display": format_jst_datetime(row["published"]) if row["published"] else "",
+                        "id": int(r["id"]),
+                        "title": r["title"] or "(no title)",
+                        "link": r["link"] or "",
+                        "source_name": r["source_name"] or "",
+                        "published_display": format_jst_datetime(r["published"]) if r["published"] else "",
                     }
-                    for _, row in sorted_group.head(5).iterrows()
+                    for r in sorted_group.head(5).to_dict("records")
                 ],
             }
         )
@@ -77,6 +77,14 @@ def get_article_groups(keyword="", read_filter="all", saved_filter="all", sort_o
     if sort_order == "saved":
         groups.sort(key=lambda group: group["is_saved"], reverse=True)
     return groups[:limit]
+
+
+def get_article_group_by_article_key(article_key_value: str):
+    """Single group for one article_key (after DB update); avoids scanning all articles."""
+    rows = list_articles_by_key(article_key_value)
+    if not rows:
+        return None
+    return _first_group_from_item_rows(rows)
 
 
 def _first_group_from_item_rows(rows):

@@ -5,9 +5,13 @@ from fastapi.responses import HTMLResponse, Response
 
 from db import update_article_read_status, update_article_saved_status
 from fetcher import fetch_active_feeds
-from version import APP_VERSION
+from version import read_app_version
 
-from webapp.article_groups import get_article_group_by_id, get_article_groups
+from webapp.article_groups import (
+    get_article_group_by_article_key,
+    get_article_group_by_id,
+    get_article_groups,
+)
 from webapp.auto_fetch import maybe_run_auto_fetch
 from webapp.context import render_index_template
 from webapp.deps import templates
@@ -31,16 +35,38 @@ def _list_filter_context(
     }
 
 
+def _group_matches_active_filters(group, *, read_filter: str, saved_filter: str) -> bool:
+    """Whether this group would still appear in the current list (same rules as get_article_groups)."""
+    if group is None:
+        return False
+    if read_filter == "unread" and group["is_read"]:
+        return False
+    if read_filter == "read" and not group["is_read"]:
+        return False
+    if saved_filter == "saved" and not group["is_saved"]:
+        return False
+    return True
+
+
 def _article_card_response(request: Request, article_key_value: str, **list_ctx):
-    article_groups = get_article_groups(**list_ctx)
-    group = next((g for g in article_groups if g["article_key"] == article_key_value), None)
+    group = get_article_group_by_article_key(article_key_value)
+    if not _group_matches_active_filters(
+        group,
+        read_filter=list_ctx.get("read_filter", "all"),
+        saved_filter=list_ctx.get("saved_filter", "all"),
+    ):
+        # HTMX: 空の outerHTML 差し替えが効かない環境があるため delete を明示
+        return HTMLResponse(
+            "",
+            headers={"HX-Reswap": "delete"},
+        )
     return templates.TemplateResponse(
         request,
         "partials/article_card.html",
         {
             "request": request,
             "group": group,
-            "app_version": APP_VERSION,
+            "app_version": read_app_version(),
             **list_ctx,
         },
     )
@@ -86,7 +112,7 @@ def article_list(
         {
             "request": request,
             "article_groups": article_groups,
-            "app_version": APP_VERSION,
+            "app_version": read_app_version(),
             **list_ctx,
         },
     )
@@ -98,7 +124,7 @@ def article_detail(request: Request, article_id: int):
     return templates.TemplateResponse(
         request,
         "partials/article_detail.html",
-        {"request": request, "group": group, "app_version": APP_VERSION},
+        {"request": request, "group": group, "app_version": read_app_version()},
     )
 
 

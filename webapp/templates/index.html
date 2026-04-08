@@ -24,8 +24,16 @@
         window.setTimeout(async () => {
             try {
                 await fetch("/articles/auto-fetch", { method: "POST" });
-            } finally {
-                window.location.reload();
+            } catch (error) {
+                console.warn("auto-fetch", error);
+            }
+            const form = document.querySelector("form.filters");
+            if (form && window.htmx) {
+                const query = new URLSearchParams(new FormData(form)).toString();
+                window.htmx.ajax("GET", "/articles/list?" + query, {
+                    target: "#article-list",
+                    swap: "innerHTML",
+                });
             }
         }, {{ next_auto_fetch_delay_ms }});
     </script>
@@ -82,6 +90,7 @@
             {% endif %}
 
             <form
+                id="article-filters"
                 class="filters"
                 hx-get="/articles/list"
                 hx-target="#article-list"

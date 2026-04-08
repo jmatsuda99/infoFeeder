@@ -12,3 +12,8 @@ data/fetch.lock
 # Local logs
 streamlit.out.log
 streamlit.err.log
+webapp_stdout.log
+webapp_stderr.log
+
+# Machine-specific shortcuts (regenerate with scripts\create_infofeeder_shortcut.ps1)
+*.lnk

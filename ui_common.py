@@ -7,7 +7,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from fetcher import fetch_active_feeds
-from version import APP_VERSION
+from version import read_app_version
 
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -152,7 +152,7 @@ def render_app_shell(next_fetch_at):
         f"""
         <div class="if-page-intro">
             <div class="if-card-title">Google Alerts RSS Viewer</div>
-            <div class="if-muted">Ver.{APP_VERSION}</div>
+            <div class="if-muted">Ver.{read_app_version()}</div>
             <div class="if-muted">ソースを管理し、未読記事を確認し、30分ごとに自動更新します。次回取得予定: {format_jst_datetime(next_fetch_at, include_date=True)}</div>
         </div>
         """,

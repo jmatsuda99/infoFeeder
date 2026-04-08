@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import time
@@ -13,6 +14,18 @@ CHROME_CANDIDATE_PATHS = [
     Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
     Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
     Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "Application" / "chrome.exe",
+]
+EDGE_CANDIDATE_PATHS = [
+    Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+    / "Microsoft"
+    / "Edge"
+    / "Application"
+    / "msedge.exe",
+    Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+    / "Microsoft"
+    / "Edge"
+    / "Application"
+    / "msedge.exe",
 ]
 STREAMLIT_APP_PATH = ROOT_DIR / "app.py"
 STREAMLIT_PORT = 8502
@@ -32,6 +45,7 @@ STREAMLIT_STDERR_LOG = ROOT_DIR / "streamlit.err.log"
 WEB_APP_PATH = ROOT_DIR / "run_web.py"
 WEB_PORT = 8510
 WEB_URL = f"http://127.0.0.1:{WEB_PORT}"
+WEB_READY_URL = f"{WEB_URL}/health"
 WEB_ARGS = [str(WEB_APP_PATH)]
 WEB_STDOUT_LOG = ROOT_DIR / "webapp_stdout.log"
 WEB_STDERR_LOG = ROOT_DIR / "webapp_stderr.log"
@@ -132,23 +146,58 @@ def find_chrome_executable():
     return None
 
 
+def find_edge_executable():
+    for edge_path in EDGE_CANDIDATE_PATHS:
+        if edge_path.exists():
+            return edge_path
+    return None
+
+
 def open_browser(app_url):
+    """Open the app URL in a new browser tab (Chrome, Edge, or OS default)."""
     chrome_executable = find_chrome_executable()
     if chrome_executable is not None:
-        subprocess.Popen([str(chrome_executable), "--new-tab", app_url], cwd=str(ROOT_DIR))
+        subprocess.Popen(
+            [str(chrome_executable), "--new-tab", app_url],
+            cwd=str(ROOT_DIR),
+            shell=False,
+        )
         return
-    webbrowser.open(app_url)
+    edge_executable = find_edge_executable()
+    if edge_executable is not None:
+        subprocess.Popen(
+            [str(edge_executable), "--new-tab", app_url],
+            cwd=str(ROOT_DIR),
+            shell=False,
+        )
+        return
+    webbrowser.open(app_url, new=2)
 
 
-def launch_and_open(*, port, app_url, args, stdout_log_path, stderr_log_path, app_name):
+def launch_and_open(
+    *,
+    port,
+    app_url,
+    args,
+    stdout_log_path,
+    stderr_log_path,
+    app_name,
+    ready_url=None,
+):
     ensure_environment()
+    ready_url = ready_url or app_url
+    # 既に応答していれば再起動せずタブだけ開く（デスクトップからの再クリック向け）
+    if is_server_ready(ready_url):
+        open_browser(app_url)
+        return
+
     existing_pid = get_listening_pid(port)
     if existing_pid:
         stop_process(existing_pid)
         wait_for_port_release(port)
 
     start_background_server(args, stdout_log_path, stderr_log_path)
-    if not wait_for_server(app_url):
+    if not wait_for_server(ready_url):
         raise RuntimeError(f"{app_name} did not become ready within {WAIT_TIMEOUT_SECONDS} seconds.")
     open_browser(app_url)
 
@@ -177,6 +226,7 @@ def main():
             stdout_log_path=WEB_STDOUT_LOG,
             stderr_log_path=WEB_STDERR_LOG,
             app_name="Web app",
+            ready_url=WEB_READY_URL,
         )
         return
     if command == "serve-web":

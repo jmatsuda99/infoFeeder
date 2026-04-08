@@ -43,14 +43,10 @@
                         hx-trigger="change"
                         hx-target="#article-{{ group.id }}"
                         hx-swap="outerHTML"
+                        hx-include="#article-filters"
                         hx-vals='js:{
-                            article_key_value: "{{ group.article_key }}",
-                            is_read: event.target.checked ? "true" : "false",
-                            keyword: "{{ keyword }}",
-                            read_filter: "{{ read_filter }}",
-                            saved_filter: "{{ saved_filter }}",
-                            sort_order: "{{ sort_order }}",
-                            limit: "{{ limit }}"
+                            article_key_value: {{ group.article_key | tojson }},
+                            is_read: event.target.checked ? "true" : "false"
                         }'
                     >
                     <span class="slider"></span>
@@ -66,14 +62,10 @@
                         hx-trigger="change"
                         hx-target="#article-{{ group.id }}"
                         hx-swap="outerHTML"
+                        hx-include="#article-filters"
                         hx-vals='js:{
-                            article_key_value: "{{ group.article_key }}",
-                            is_saved: event.target.checked ? "true" : "false",
-                            keyword: "{{ keyword }}",
-                            read_filter: "{{ read_filter }}",
-                            saved_filter: "{{ saved_filter }}",
-                            sort_order: "{{ sort_order }}",
-                            limit: "{{ limit }}"
+                            article_key_value: {{ group.article_key | tojson }},
+                            is_saved: event.target.checked ? "true" : "false"
                         }'
                     >
                     <span class="slider"></span>

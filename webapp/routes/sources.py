@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 
 from db import add_feed, delete_feed, update_feed_status
 from fetcher import discover_feed_source
-from version import APP_VERSION
+from version import read_app_version
 
 from webapp.context import render_sources_template
 from webapp.deps import templates
@@ -15,6 +15,15 @@ router = APIRouter()
 @router.get("/sources", response_class=HTMLResponse)
 def sources(request: Request):
     return render_sources_template(request)
+
+
+@router.get("/sources/feed-list", response_class=HTMLResponse)
+def feed_list_partial(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "partials/feed_list.html",
+        {"request": request, "feeds": get_feed_rows(), "app_version": read_app_version()},
+    )
 
 
 @router.post("/sources/add", response_class=HTMLResponse)
@@ -59,7 +68,7 @@ def toggle_source(request: Request, feed_id: int = Form(...), is_active: str = F
     return templates.TemplateResponse(
         request,
         "partials/feed_list.html",
-        {"request": request, "feeds": get_feed_rows(), "app_version": APP_VERSION},
+        {"request": request, "feeds": get_feed_rows(), "app_version": read_app_version()},
     )
 
 
@@ -69,5 +78,5 @@ def remove_source(request: Request, feed_id: int = Form(...)):
     return templates.TemplateResponse(
         request,
         "partials/feed_list.html",
-        {"request": request, "feeds": get_feed_rows(), "app_version": APP_VERSION},
+        {"request": request, "feeds": get_feed_rows(), "app_version": read_app_version()},
     )

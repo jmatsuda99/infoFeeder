@@ -138,6 +138,7 @@ def init_db():
                 cur.execute("ALTER TABLE items ADD COLUMN saved_at TEXT")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_article_key ON items(article_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_published ON items(published)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_items_feed_id ON items(feed_id)")
 
             rows_to_refresh = cur.execute("""
                 SELECT id, title, link, article_key
@@ -162,6 +163,7 @@ def init_db():
                 """
             )
 
+            cur.execute("ANALYZE")
             conn.commit()
         finally:
             conn.close()
