@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, Response
 
+from claude_generator import generate_and_store_overview
 from db import update_article_read_status, update_article_saved_status
 from fetcher import fetch_active_feeds
 from version import read_app_version
@@ -204,5 +205,7 @@ def update_saved(
     limit: int = Form(50),
 ):
     update_article_saved_status(article_key_value, is_saved == "true")
+    if is_saved == "true":
+        generate_and_store_overview(article_key_value)
     list_ctx = _list_filter_context(keyword, read_filter, saved_filter, sort_order, limit)
     return _article_card_response(request, article_key_value, **list_ctx)

@@ -11,6 +11,7 @@ from exclusion_rules import DEFAULT_EXCLUDED_DOMAIN_NAMES, resolve_excluded_doma
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "alerts.db"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_TIMEOUT_SECONDS = 30
 DB_BUSY_TIMEOUT_MS = DB_TIMEOUT_SECONDS * 1000
 DB_RETRY_ATTEMPTS = 5
@@ -18,7 +19,10 @@ DB_RETRY_DELAY_SECONDS = 0.4
 def configure_conn(conn):
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout = {DB_BUSY_TIMEOUT_MS}")
-    conn.execute("PRAGMA journal_mode = WAL")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.OperationalError:
+        conn.execute("PRAGMA journal_mode = DELETE")
     conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
@@ -121,6 +125,10 @@ def init_db():
                 article_key TEXT,
                 published TEXT,
                 summary TEXT,
+                generated_overview TEXT,
+                generated_overview_error TEXT,
+                generated_overview_source TEXT,
+                generated_at TEXT,
                 is_read INTEGER DEFAULT 0,
                 is_saved INTEGER DEFAULT 0,
                 saved_at TEXT,
@@ -136,6 +144,14 @@ def init_db():
                 cur.execute("ALTER TABLE items ADD COLUMN is_saved INTEGER DEFAULT 0")
             if "saved_at" not in item_columns:
                 cur.execute("ALTER TABLE items ADD COLUMN saved_at TEXT")
+            if "generated_overview" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN generated_overview TEXT")
+            if "generated_overview_error" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN generated_overview_error TEXT")
+            if "generated_overview_source" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN generated_overview_source TEXT")
+            if "generated_at" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN generated_at TEXT")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_article_key ON items(article_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_published ON items(published)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_feed_id ON items(feed_id)")
@@ -383,6 +399,10 @@ def list_articles(keyword=""):
         MAX(COALESCE(i.is_read, 0)) as is_read,
         MAX(COALESCE(i.is_saved, 0)) as is_saved,
         MAX(COALESCE(i.saved_at, '')) as saved_at,
+        MAX(COALESCE(i.generated_overview, '')) as generated_overview,
+        MAX(COALESCE(i.generated_overview_error, '')) as generated_overview_error,
+        MAX(COALESCE(i.generated_overview_source, '')) as generated_overview_source,
+        MAX(COALESCE(i.generated_at, '')) as generated_at,
         i.link as link,
         MAX(i.title) as title,
         MAX(COALESCE(i.summary, '')) as summary
@@ -427,6 +447,10 @@ def get_item_with_feed_by_id(item_id):
                 COALESCE(i.is_read, 0) as is_read,
                 COALESCE(i.is_saved, 0) as is_saved,
                 COALESCE(i.saved_at, '') as saved_at,
+                COALESCE(i.generated_overview, '') as generated_overview,
+                COALESCE(i.generated_overview_error, '') as generated_overview_error,
+                COALESCE(i.generated_overview_source, '') as generated_overview_source,
+                COALESCE(i.generated_at, '') as generated_at,
                 i.link as link,
                 COALESCE(i.title, '') as title,
                 COALESCE(i.summary, '') as summary
@@ -456,6 +480,10 @@ def list_articles_by_key(article_key_value):
                 COALESCE(i.is_read, 0) as is_read,
                 COALESCE(i.is_saved, 0) as is_saved,
                 COALESCE(i.saved_at, '') as saved_at,
+                COALESCE(i.generated_overview, '') as generated_overview,
+                COALESCE(i.generated_overview_error, '') as generated_overview_error,
+                COALESCE(i.generated_overview_source, '') as generated_overview_source,
+                COALESCE(i.generated_at, '') as generated_at,
                 i.link as link,
                 COALESCE(i.title, '') as title,
                 COALESCE(i.summary, '') as summary
@@ -503,6 +531,54 @@ def update_article_saved_status(article_key_value, is_saved):
             conn.close()
 
     run_with_retry(_update_article_saved_status)
+
+
+def get_article_generation_input(article_key_value):
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        row = cur.execute(
+            """
+            SELECT
+                COALESCE(i.article_key, '') as article_key,
+                COALESCE(i.title, '') as title,
+                COALESCE(i.link, '') as link,
+                COALESCE(i.summary, '') as summary,
+                COALESCE(f.name, '') as source_name,
+                COALESCE(f.category, '') as category
+            FROM items i
+            JOIN feeds f ON i.feed_id = f.id
+            WHERE COALESCE(i.article_key, '') = ?
+            ORDER BY COALESCE(i.published, '') DESC, i.id DESC
+            LIMIT 1
+            """,
+            (article_key_value,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_article_generated_overview(article_key_value, overview_text, error_text="", source_text=""):
+    now = datetime.now().isoformat(timespec="seconds")
+
+    def _update_article_generated_overview():
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                UPDATE items
+                SET generated_overview=?, generated_overview_error=?, generated_overview_source=?, generated_at=?
+                WHERE article_key=?
+                """,
+                (overview_text, error_text, source_text, now, article_key_value),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    run_with_retry(_update_article_generated_overview)
 
 
 def update_articles_read_status(article_keys, is_read):

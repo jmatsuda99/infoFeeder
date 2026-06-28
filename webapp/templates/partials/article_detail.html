@@ -1,6 +1,32 @@
 {% if group %}
 <section class="detail-panel">
     <div class="detail-block">
+        <div class="detail-heading">
+            <h4>Generated overview</h4>
+            {% if group.generated_overview %}
+            <button
+                type="button"
+                class="copy-button detail-copy-button"
+                data-copy-text="{{ group.generated_overview|e }}"
+                data-reset-ms="10000"
+                onclick="copyOverviewRichText(this)"
+            >
+                &#35201;&#32004;&#12434;&#12467;&#12500;&#12540;
+            </button>
+            {% endif %}
+        </div>
+        {% if group.generated_overview %}
+        <div class="generated-overview">{{ group.generated_overview|format_generated_overview }}</div>
+        {% elif group.generated_overview_error %}
+        <p>{{ group.generated_overview_error }}</p>
+        {% if group.generated_overview_source %}
+        <p>{{ group.generated_overview_source }}</p>
+        {% endif %}
+        {% else %}
+        <p class="muted">No generated overview yet.</p>
+        {% endif %}
+    </div>
+    <div class="detail-block">
         <h4>Summary</h4>
         <p>{{ group.summary or "No summary available." }}</p>
     </div>

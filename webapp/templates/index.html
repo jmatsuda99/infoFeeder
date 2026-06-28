@@ -8,18 +8,95 @@
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="/static/half_hour_auto_fetch.js"></script>
     <script>
-        async function copyArticlePayload(button) {
-            const payload = button.dataset.copyText || "";
-            const originalLabel = button.textContent;
-            try {
-                await navigator.clipboard.writeText(payload);
-                button.textContent = "Copied";
-            } catch (error) {
-                button.textContent = "Failed";
-            }
+        function setCopyButtonFeedback(button, success) {
+            const originalLabel = button.dataset.originalLabel || button.textContent;
+            const resetMs = Number(button.dataset.resetMs || "1200");
+            button.dataset.originalLabel = originalLabel;
+            button.textContent = success ? "Copied" : "Failed";
             window.setTimeout(() => {
                 button.textContent = originalLabel;
-            }, 1200);
+            }, resetMs);
+        }
+
+        async function copyArticlePayload(button) {
+            const payload = button.dataset.copyText || "";
+            try {
+                await navigator.clipboard.writeText(payload);
+                setCopyButtonFeedback(button, true);
+            } catch (error) {
+                setCopyButtonFeedback(button, false);
+            }
+        }
+
+        function escapeHtml(value) {
+            return value
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#39;");
+        }
+
+        function formatInlineOverviewHtml(text) {
+            let html = escapeHtml(text);
+            html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+            html = html.replace(
+                /(https?:\/\/[^\s<]+)/g,
+                '<a href="$1" target="_blank" rel="noreferrer">$1</a>'
+            );
+            return html;
+        }
+
+        function buildOverviewHtml(text) {
+            const lines = text.split(/\r?\n/);
+            const blocks = [];
+            let listItems = [];
+
+            function flushList() {
+                if (!listItems.length) {
+                    return;
+                }
+                blocks.push("<ul>" + listItems.map((item) => "<li>" + item + "</li>").join("") + "</ul>");
+                listItems = [];
+            }
+
+            for (const rawLine of lines) {
+                const line = rawLine.trim();
+                if (!line) {
+                    flushList();
+                    continue;
+                }
+                if (line.startsWith("- ")) {
+                    listItems.push(formatInlineOverviewHtml(line.slice(2)));
+                    continue;
+                }
+                flushList();
+                blocks.push("<p>" + formatInlineOverviewHtml(line) + "</p>");
+            }
+
+            flushList();
+            return blocks.join("");
+        }
+
+        async function copyOverviewRichText(button) {
+            const payload = button.dataset.copyText || "";
+            const html = buildOverviewHtml(payload);
+
+            try {
+                if (navigator.clipboard.write && window.ClipboardItem) {
+                    await navigator.clipboard.write([
+                        new ClipboardItem({
+                            "text/plain": new Blob([payload], { type: "text/plain" }),
+                            "text/html": new Blob([html], { type: "text/html" }),
+                        }),
+                    ]);
+                } else {
+                    await navigator.clipboard.writeText(payload);
+                }
+                setCopyButtonFeedback(button, true);
+            } catch (error) {
+                setCopyButtonFeedback(button, false);
+            }
         }
 
         infoFeederScheduleHalfHourAutoFetch(function () {

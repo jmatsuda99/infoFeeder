@@ -19,6 +19,12 @@
                 <span class="badge badge-muted">Grouped {{ group.group_count }}</span>
                 {% endif %}
             </div>
+            <div
+                id="save-indicator-{{ group.id }}"
+                class="article-status-indicator htmx-indicator"
+            >
+                &#35201;&#32004;&#20013;...
+            </div>
             <h3>{{ group.title }}</h3>
             {% if group.published_display %}
             <p class="muted">{{ group.published_display }}</p>
@@ -62,6 +68,7 @@
                         hx-trigger="change"
                         hx-target="#article-{{ group.id }}"
                         hx-swap="outerHTML"
+                        hx-indicator="#save-indicator-{{ group.id }}"
                         hx-include="#article-filters"
                         hx-vals='js:{
                             article_key_value: {{ group.article_key | tojson }},

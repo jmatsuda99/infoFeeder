@@ -22,6 +22,7 @@ The legacy **Streamlit** UI has been removed; all behavior lives under `webapp/`
 - Group duplicate articles by primary-source URL
 - Mark grouped articles as read; save / unsave
 - Open article detail panels; copy title + URL to the clipboard
+- When **Save** is turned on, try generating an overview through the local Claude CLI and show it in the detail panel
 - Manage sources on the **Sources** page; **export sources as OPML** for backup or other readers
 - Show application version in the web UI
 - **Scheduled fetch** at local clock **:00** and **:30** (browser tab open), then refresh article or feed lists via HTMX
@@ -83,6 +84,20 @@ Create **`infoFeeder Web.lnk`** on the desktop (target is `start_infofeeder.vbs`
 ```
 
 To place the shortcut in the repo folder only, run without `-Desktop`. `*.lnk` is gitignored (paths are machine-specific).
+
+### Auto-start at Windows sign-in
+
+Register a per-user scheduled task that launches the existing silent starter (`start_infofeeder.vbs`) whenever you sign in:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install_startup_task.ps1
+```
+
+Remove it later with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install_startup_task.ps1 -Uninstall
+```
 
 ## Main files
 
