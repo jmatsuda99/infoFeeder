@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, Response
 from claude_generator import generate_and_store_overview
 from db import update_article_read_status, update_article_saved_status
 from fetcher import fetch_active_feeds
+from jst_format import is_recent_article
 from version import read_app_version
 
 from webapp.article_groups import (
@@ -39,6 +40,8 @@ def _list_filter_context(
 def _group_matches_active_filters(group, *, read_filter: str, saved_filter: str) -> bool:
     """Whether this group would still appear in the current list (same rules as get_article_groups)."""
     if group is None:
+        return False
+    if not is_recent_article(group.get("published")):
         return False
     if read_filter == "unread" and group["is_read"]:
         return False

@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 from article_utils import article_key
 from exclusion_rules import DEFAULT_EXCLUDED_DOMAIN_NAMES, resolve_excluded_domain_keywords
+from jst_format import is_recent_article
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -361,18 +362,22 @@ def get_summary_metrics_row():
             """
         ).fetchone()
 
-        article_metrics = cur.execute(
+        unread_groups = pd.read_sql_query(
             """
-            SELECT COUNT(*) AS unread_articles
-            FROM (
-                SELECT article_key
-                FROM items
-                WHERE COALESCE(article_key, '') != ''
-                GROUP BY article_key
-                HAVING MAX(COALESCE(is_read, 0)) = 0
-            )
-            """
-        ).fetchone()
+            SELECT
+                MAX(COALESCE(article_key, '')) AS article_key,
+                MAX(COALESCE(published, '')) AS published,
+                MAX(COALESCE(is_read, 0)) AS is_read
+            FROM items
+            WHERE COALESCE(article_key, '') != ''
+            GROUP BY article_key
+            """,
+            conn,
+        )
+        if not unread_groups.empty:
+            unread_groups = unread_groups[
+                unread_groups["published"].apply(is_recent_article) & unread_groups["is_read"].fillna(0).eq(0)
+            ]
 
         return {
             "total_sources": int(feed_metrics["total_sources"] or 0),
@@ -380,7 +385,7 @@ def get_summary_metrics_row():
             "latest_success_at": feed_metrics["latest_success_at"] or "",
             "latest_error_at": feed_metrics["latest_error_at"] or "",
             "error_feed_count": int(feed_metrics["error_feed_count"] or 0),
-            "unread_articles": int(article_metrics["unread_articles"] or 0),
+            "unread_articles": int(len(unread_groups.index)),
         }
     finally:
         conn.close()
