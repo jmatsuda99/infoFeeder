@@ -370,6 +370,235 @@ body {
     color: var(--muted);
 }
 
+.map-intro p {
+    margin: 0 0 12px;
+}
+
+.topic-insights {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 18px;
+}
+
+.attention-insights {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 18px;
+}
+
+.topic-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+    padding: 18px 20px;
+}
+
+.topic-panel h2 {
+    font-size: 18px;
+    margin: 0 0 6px;
+}
+
+.topic-panel p {
+    font-size: 13px;
+    margin: 0 0 12px;
+}
+
+.topic-list {
+    margin: 0;
+    padding-left: 24px;
+}
+
+.topic-list li + li {
+    margin-top: 9px;
+}
+
+.topic-list span {
+    color: var(--muted);
+    display: block;
+    font-size: 13px;
+    margin-top: 2px;
+}
+
+.map-insights-summary h2 {
+    font-size: 18px;
+    margin: 0 0 10px;
+}
+
+.map-insights-summary ul {
+    margin: 0;
+    padding-left: 22px;
+}
+
+.map-insights-summary li + li {
+    margin-top: 9px;
+}
+
+.map-insights-summary .muted {
+    font-size: 13px;
+    margin: 14px 0 0;
+}
+
+.map-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.legend-dot,
+.legend-line {
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+.legend-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #35658c;
+}
+
+.legend-line {
+    width: 24px;
+    border-top: 3px solid #7e97ab;
+}
+
+.map-layout {
+    position: relative;
+}
+
+.map-page {
+    max-width: none;
+    padding: 16px;
+}
+
+.map-canvas-shell,
+.map-detail {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.06);
+}
+
+.map-canvas-shell {
+    overflow: hidden;
+    width: 100%;
+}
+
+.article-map {
+    display: block;
+    width: 100%;
+    height: clamp(680px, 82vh, 1080px);
+    background: radial-gradient(circle at center, #fff 0%, #f5f8fb 72%);
+}
+
+.map-edge {
+    stroke: #8fa5b7;
+    stroke-linecap: round;
+    opacity: 0.5;
+}
+
+.map-node {
+    cursor: pointer;
+}
+
+.map-node circle {
+    stroke: #fff;
+    stroke-width: 3;
+    transition: filter 0.15s ease;
+}
+
+.map-node:hover circle,
+.map-node:focus circle {
+    filter: brightness(1.12);
+    outline: none;
+}
+
+.map-node.is-hub circle {
+    stroke: var(--accent);
+    stroke-width: 4;
+    filter: drop-shadow(0 2px 3px rgba(20, 38, 58, 0.22));
+}
+
+.map-node.is-hub text {
+    font-weight: 700;
+}
+
+.map-node.is-top-hub circle {
+    stroke: #7e1d1d;
+    stroke-width: 5;
+    filter: drop-shadow(0 3px 5px rgba(127, 29, 29, 0.34));
+}
+
+.map-node text {
+    fill: var(--text);
+    font-family: "Segoe UI", sans-serif;
+    font-size: 12px;
+    text-anchor: middle;
+    pointer-events: none;
+}
+
+.map-detail {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: min(360px, calc(100% - 32px));
+    padding: 20px;
+    max-height: 620px;
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.96);
+}
+
+.map-detail h2 {
+    font-size: 19px;
+    margin: 7px 0;
+}
+
+.map-detail h3 {
+    font-size: 15px;
+    margin: 22px 0 8px;
+}
+
+.map-category {
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.map-connection-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.map-connection-list li + li {
+    margin-top: 12px;
+}
+
+.map-connection-list button {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+}
+
+.map-connection-list small {
+    color: var(--muted);
+    display: block;
+    margin-top: 3px;
+}
+
 @media (max-width: 900px) {
     .metrics,
     .filters {
@@ -380,5 +609,28 @@ body {
     .hero-row {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .map-layout {
+        display: grid;
+    }
+
+    .map-detail {
+        position: static;
+        width: auto;
+        max-height: none;
+        margin-top: 18px;
+    }
+
+    .article-map {
+        height: 680px;
+    }
+
+    .topic-insights {
+        grid-template-columns: 1fr;
+    }
+
+    .attention-insights {
+        grid-template-columns: 1fr;
     }
 }

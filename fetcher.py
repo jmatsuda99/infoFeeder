@@ -1,5 +1,7 @@
-
+import json
 import os
+import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from html import unescape
 from html.parser import HTMLParser
@@ -11,6 +13,7 @@ import feedparser
 from article_utils import article_key
 from db import get_conn, get_excluded_domain_keywords, set_app_state
 from exclusion_rules import is_excluded_domain_url_by_keywords
+from policy_sources import get_committee_watch_source, get_official_watch_source, get_policy_design_source
 TRACKING_QUERY_KEYS = {
     "utm_source",
     "utm_medium",
@@ -34,9 +37,11 @@ TRACKING_QUERY_KEYS = {
     "s",
 }
 RSS_CONTENT_TYPES = ("application/rss+xml", "application/atom+xml", "application/xml", "text/xml")
-USER_AGENT = "infoFeeder/1.0"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
 FETCH_LOCK_PATH = Path("data/fetch.lock")
 FETCH_LOCK_STALE_SECONDS = 15 * 60
+MAX_FETCH_WORKERS = 32
+SQLITE_MAX_VARIABLES = 900
 
 
 class FeedDiscoveryParser(HTMLParser):
@@ -237,30 +242,231 @@ def extract_html_listing_entries(url):
     return entries
 
 
-def insert_item(cur, feed_id, title, link, published, summary, excluded_domain_keywords):
-    if not link or is_excluded_domain_url_by_keywords(link, excluded_domain_keywords):
-        return False
+def extract_policy_listing_entries(url):
+    """Read only meeting/material links from a curated official policy source."""
+    source = get_policy_design_source(url)
+    if source is None:
+        raise ValueError(f"Unsupported policy listing source: {url}")
 
-    current_article_key = article_key(title, link)
-    existing_read = cur.execute(
-        "SELECT MAX(COALESCE(is_read, 0)) FROM items WHERE article_key=?",
-        (current_article_key,)
-    ).fetchone()[0] or 0
-    cur.execute("""
-    INSERT OR IGNORE INTO items
-    (feed_id,title,link,article_key,published,summary,is_read,fetched_at)
-    VALUES(?,?,?,?,?,?,?,?)
-    """,(
-        feed_id,
-        title,
-        link,
-        current_article_key,
-        published,
-        summary,
-        existing_read,
-        datetime.now().isoformat(timespec="seconds")
-    ))
-    return cur.rowcount > 0
+    content, _, charset = fetch_url_content(url)
+    parser = FeedDiscoveryParser()
+    parser.feed(content.decode(charset, errors="ignore"))
+    entries = []
+    seen = set()
+    prefix = source["path_prefix"]
+    for href, text in parser.article_links:
+        article_url = normalize_url(urljoin(url, href))
+        parsed = urlparse(article_url)
+        is_source_index = article_url == normalize_url(url)
+        if not parsed.path.startswith(prefix) or is_source_index:
+            continue
+        if parsed.path.endswith("/index.html") and not source.get("allow_index_entries"):
+            continue
+        if not parsed.path.endswith(".html") or article_url in seen:
+            continue
+        title = unescape(" ".join(text.split())).strip()
+        if not title:
+            continue
+        if source.get("meeting_title_required") and not re.search(r"第\s*\d+\s*回", title):
+            continue
+        # EGC's table uses generic anchor labels such as "配布資料". Preserve
+        # the meeting identity in the card title by taking its number from URL.
+        if source["name"].startswith("電力・ガス取引監視"):
+            match = re.search(r"/(\d+)_", parsed.path)
+            meeting = f"第{int(match.group(1))}回" if match else "開催情報"
+            title = f"{meeting} {title}"
+        entries.append(
+            {
+                "title": f"{source['title_prefix']}: {title}",
+                "link": article_url,
+                "published": datetime.now().isoformat(timespec="seconds"),
+                "summary": "Official policy-design committee update.",
+            }
+        )
+        seen.add(article_url)
+        if len(entries) >= 30:
+            break
+    return entries
+
+
+def extract_official_watch_entries(url):
+    """Extract current, content-bearing links from a curated official watcher."""
+    source = get_official_watch_source(url)
+    if source is None:
+        raise ValueError(f"Unsupported official watch source: {url}")
+    content, _, charset = fetch_url_content(url)
+    parser = FeedDiscoveryParser()
+    parser.feed(content.decode(charset, errors="ignore"))
+    entries = []
+    seen = set()
+    for href, text in parser.article_links:
+        article_url = normalize_url(urljoin(url, href))
+        parsed = urlparse(article_url)
+        if not any(parsed.path.startswith(prefix) for prefix in source["path_prefixes"]):
+            continue
+        if not parsed.path.endswith(".html") or article_url in seen:
+            continue
+        title = unescape(" ".join(text.split())).strip()
+        if not title or not all(term in title for term in source["required_terms"]):
+            continue
+        entries.append(
+            {
+                "title": f"{source['name']}: {title}",
+                "link": article_url,
+                "published": datetime.now().isoformat(timespec="seconds"),
+                "summary": "Official organization update.",
+            }
+        )
+        seen.add(article_url)
+        if len(entries) >= 30:
+            break
+    return entries
+
+
+def extract_committee_watch_entries(url):
+    """Read meeting cards with published handouts from an OCCTO JSON listing."""
+    source = get_committee_watch_source(url)
+    if source is None:
+        raise ValueError(f"Unsupported committee watch source: {url}")
+
+    content, _, charset = fetch_url_content(url)
+    listing = json.loads(content.decode(charset, errors="ignore"))
+    entries = []
+    for meeting in listing:
+        document_names = {document.get("name") for document in meeting.get("doc_status", [])}
+        if "配布資料" not in document_names:
+            continue
+        title = unescape(" ".join(str(meeting.get("title", "")).split())).strip()
+        link = normalize_url(urljoin(source["site_url"], meeting.get("url", "")))
+        if not title or not link:
+            continue
+        agenda = re.sub(r"<[^>]+>", " ", str(meeting.get("agenda", "")))
+        entries.append(
+            {
+                "title": f"{source['name']}: {title} 配布資料",
+                "link": link,
+                "published": meeting.get("published_date", "") or datetime.now().isoformat(timespec="seconds"),
+                "summary": unescape(" ".join(agenda.split())),
+            }
+        )
+        if len(entries) >= 30:
+            break
+    return entries
+
+
+def prefetch_read_status(cur, article_keys):
+    keys = list({k for k in article_keys if k})
+    if not keys:
+        return {}
+    result = {}
+    for start in range(0, len(keys), SQLITE_MAX_VARIABLES):
+        chunk = keys[start : start + SQLITE_MAX_VARIABLES]
+        placeholders = ",".join("?" * len(chunk))
+        cur.execute(
+            f"""
+            SELECT article_key, MAX(COALESCE(is_read, 0)) AS mr
+            FROM items
+            WHERE article_key IN ({placeholders})
+            GROUP BY article_key
+            """,
+            chunk,
+        )
+        for row in cur.fetchall():
+            result[row["article_key"]] = row["mr"] or 0
+    return result
+
+
+def insert_feed_rows(cur, feed_id, rows, excluded_domain_keywords, *, force_unread=False, skip_existing_links=False):
+    if not rows:
+        return 0
+
+    prepared = []
+    keys_for_prefetch = []
+    for row in rows:
+        title = row["title"]
+        link = row["link"]
+        published = row["published"]
+        summary = row["summary"]
+        if not link or is_excluded_domain_url_by_keywords(link, excluded_domain_keywords):
+            continue
+        ak = article_key(title, link)
+        prepared.append((title, link, published, summary, ak))
+        keys_for_prefetch.append(ak)
+
+    if not prepared:
+        return 0
+
+    read_by_key = {} if force_unread else prefetch_read_status(cur, keys_for_prefetch)
+    inserted = 0
+    fetched_at = datetime.now().isoformat(timespec="seconds")
+    for title, link, published, summary, ak in prepared:
+        if skip_existing_links and cur.execute("SELECT 1 FROM items WHERE link=? LIMIT 1", (link,)).fetchone():
+            continue
+        existing_read = read_by_key.get(ak, 0)
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO items
+            (feed_id,title,link,article_key,published,summary,is_read,fetched_at)
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            (
+                feed_id,
+                title,
+                link,
+                ak,
+                published,
+                summary,
+                existing_read,
+                fetched_at,
+            ),
+        )
+        if cur.rowcount > 0:
+            inserted += 1
+            read_by_key[ak] = existing_read
+
+    return inserted
+
+
+def _fetch_worker(args):
+    feed_id, url, source_type = args
+    try:
+        if source_type == "html_listing":
+            entries = extract_html_listing_entries(url)
+        elif source_type == "policy_listing":
+            entries = extract_policy_listing_entries(url)
+        elif source_type == "official_watch":
+            entries = extract_official_watch_entries(url)
+        elif source_type == "committee_json":
+            entries = extract_committee_watch_entries(url)
+
+        if source_type in {"html_listing", "policy_listing", "official_watch", "committee_json"}:
+            rows = [
+                {
+                    "title": e["title"],
+                    "link": e["link"],
+                    "published": e["published"],
+                    "summary": e["summary"],
+                }
+                for e in entries
+            ]
+        else:
+            parsed = feedparser.parse(url)
+            if getattr(parsed, "bozo", False) and not parsed.entries:
+                raise ValueError(str(getattr(parsed, "bozo_exception", "Feed parsing failed")))
+            rows = []
+            for entry in parsed.entries:
+                link = resolve_entry_url(entry)
+                rows.append(
+                    {
+                        "title": entry.get("title", "") or "",
+                        "link": link or "",
+                        "published": entry.get("published", "") or "",
+                        "summary": entry.get("summary", "") or "",
+                    }
+                )
+        return {"feed_id": feed_id, "ok": True, "rows": rows, "error": None}
+    except Exception as error:
+        return {"feed_id": feed_id, "ok": False, "rows": [], "error": str(error)}
 
 
 def update_feed_fetch_status(cur, feed_id, *, success, error_message=""):
@@ -309,50 +515,53 @@ def release_fetch_lock(lock_path):
         Path(lock_path).unlink(missing_ok=True)
 
 
-def fetch_active_feeds():
+def fetch_active_feeds(source_type=None):
     lock_path = acquire_fetch_lock()
     if not lock_path:
         return 0
 
-    conn=get_conn()
-    cur=conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
     try:
-        cur.execute("SELECT id,url,source_type FROM feeds WHERE is_active=1")
-        feeds=cur.fetchall()
+        query = "SELECT id,url,source_type FROM feeds WHERE is_active=1"
+        params = []
+        if source_type:
+            query += " AND source_type=?"
+            params.append(source_type)
+        cur.execute(query, params)
+        feeds = cur.fetchall()
         excluded_domain_keywords = get_excluded_domain_keywords()
 
-        inserted=0
+        feed_args = [(row["id"], row["url"], row["source_type"]) for row in feeds]
 
-        for feed_id,url,source_type in feeds:
-            try:
-                if source_type == "html_listing":
-                    entries = extract_html_listing_entries(url)
-                    for entry in entries:
-                        if insert_item(cur, feed_id, entry["title"], entry["link"], entry["published"], entry["summary"], excluded_domain_keywords):
-                            inserted += 1
-                    update_feed_fetch_status(cur, feed_id, success=True)
-                    continue
+        if not feed_args:
+            conn.commit()
+            set_app_state("last_fetch_inserted_count", 0)
+            return 0
 
-                parsed=feedparser.parse(url)
-                if getattr(parsed, "bozo", False) and not parsed.entries:
-                    raise ValueError(str(getattr(parsed, "bozo_exception", "Feed parsing failed")))
+        max_workers = min(MAX_FETCH_WORKERS, max(1, len(feed_args)))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = list(executor.map(_fetch_worker, feed_args))
 
-                for e in parsed.entries:
-                    link = resolve_entry_url(e)
-                    if insert_item(
-                        cur,
-                        feed_id,
-                        e.get("title",""),
-                        link,
-                        e.get("published",""),
-                        e.get("summary",""),
-                        excluded_domain_keywords,
-                    ):
-                        inserted += 1
+        results.sort(key=lambda r: r["feed_id"])
+        inserted = 0
+        for result in results:
+            feed_id = result["feed_id"]
+            if result["ok"]:
+                feed_source_type = next(row["source_type"] for row in feeds if row["id"] == feed_id)
+                inserted += insert_feed_rows(
+                    cur,
+                    feed_id,
+                    result["rows"],
+                    excluded_domain_keywords,
+                    force_unread=feed_source_type
+                    in {"policy_listing", "official_watch", "committee_json"},
+                    skip_existing_links=feed_source_type == "committee_json",
+                )
                 update_feed_fetch_status(cur, feed_id, success=True)
-            except Exception as error:
-                update_feed_fetch_status(cur, feed_id, success=False, error_message=str(error))
+            else:
+                update_feed_fetch_status(cur, feed_id, success=False, error_message=result["error"] or "")
 
         conn.commit()
         set_app_state("last_fetch_inserted_count", inserted)

@@ -51,6 +51,7 @@ def build_article_groups(df):
                 "generated_at": representative.get("generated_at", "") or "",
                 "is_read": bool(sorted_group["is_read"].any()),
                 "is_saved": bool(sorted_group["is_saved"].any()),
+                "saved_at": representative.get("saved_at", "") or "",
                 "group_count": int(len(sorted_group)),
                 "related_articles": [
                     {

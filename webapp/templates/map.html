@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>infoFeeder Map</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="/static/half_hour_auto_fetch.js"></script>
+    <script src="/static/article_map.js" defer></script>
+    <script>
+        infoFeederScheduleHalfHourAutoFetch(async function () {
+            await fetch("/articles/auto-fetch", { method: "POST" });
+            window.setTimeout(() => window.location.reload(), 1500);
+        });
+    </script>
+</head>
+<body data-map-revision="{{ article_map.revision }}">
+    <main class="page map-page">
+        <section class="hero">
+            <div class="hero-row">
+                <div>
+                    <h1>Saved article map</h1>
+                    <p>Version {{ app_version }}</p>
+                </div>
+                <nav class="top-nav">
+                    <a class="nav-link" href="/">Articles</a>
+                    <a class="nav-link is-active" href="/map">Map</a>
+                    <a class="nav-link" href="/sources">Sources</a>
+                </nav>
+            </div>
+        </section>
+
+        <section class="panel map-intro">
+            <p>Saved articles published in the last 30 days are connected when they share a category, source, or meaningful keywords. Saved-card changes are reflected automatically. Click a node to see why it is connected.</p>
+            <div class="map-legend"><span><i class="legend-dot"></i> Category colour</span><span><i class="legend-line"></i> Stronger relation = thicker line</span></div>
+        </section>
+
+        <section class="topic-insights" aria-label="Map topic analysis">
+            <article class="topic-panel">
+                <h2>ホットだった話題</h2>
+                <p class="muted">出現数とマップ上の接続数が多い話題</p>
+                {% if article_map.topic_insights.hot_topics %}
+                <ol class="topic-list">
+                    {% for topic in article_map.topic_insights.hot_topics %}
+                    <li><strong>{{ topic.term }}</strong><span>{{ topic.count }}件 · 接続 {{ topic.connections }}</span></li>
+                    {% endfor %}
+                </ol>
+                {% else %}
+                <p class="muted">分析に十分な重複話題がありません。</p>
+                {% endif %}
+            </article>
+            <article class="topic-panel">
+                <h2>今後ホットになると予測される話題</h2>
+                <p class="muted">直近7日間で、前の期間より出現が増えた話題</p>
+                {% if article_map.topic_insights.emerging_topics %}
+                <ol class="topic-list">
+                    {% for topic in article_map.topic_insights.emerging_topics %}
+                    <li><strong>{{ topic.term }}</strong><span>直近7日: {{ topic.recent_count }}件 · 以前: {{ topic.previous_count }}件</span></li>
+                    {% endfor %}
+                </ol>
+                {% else %}
+                <p class="muted">上昇傾向を示す話題はまだありません。</p>
+                {% endif %}
+            </article>
+        </section>
+
+        {% if article_map.insights %}
+        <section class="panel map-insights-summary">
+            <h2>マップからの洞察</h2>
+            <ul>
+                {% for insight in article_map.insights %}
+                <li>{{ insight }}</li>
+                {% endfor %}
+            </ul>
+            <p class="muted">保存済みの直近30日記事と、カテゴリ・配信元・共通キーワードによる関係から得た推定です。</p>
+        </section>
+        {% endif %}
+
+        <section class="attention-insights" aria-label="Map attention analysis">
+            <article class="topic-panel">
+                <h2>注目すべき企業</h2>
+                <p class="muted">記事での言及数と関係数が多い企業候補</p>
+                {% if article_map.attention_insights.companies %}
+                <ol class="topic-list">
+                    {% for entity in article_map.attention_insights.companies %}
+                    <li><strong>{{ entity.name }}</strong><span>{{ entity.count }}件 · 接続 {{ entity.connections }}</span></li>
+                    {% endfor %}
+                </ol>
+                {% else %}
+                <p class="muted">企業名を十分に特定できませんでした。</p>
+                {% endif %}
+            </article>
+            <article class="topic-panel">
+                <h2>注目すべき制度設計関連の委員会</h2>
+                <p class="muted">制度・需給設計に関する委員会等の言及</p>
+                {% if article_map.attention_insights.committees %}
+                <ol class="topic-list">
+                    {% for entity in article_map.attention_insights.committees %}
+                    <li><strong>{{ entity.name }}</strong><span>{{ entity.count }}件 · 接続 {{ entity.connections }}</span></li>
+                    {% endfor %}
+                </ol>
+                {% else %}
+                <p class="muted">該当する委員会名は見つかりませんでした。</p>
+                {% endif %}
+            </article>
+            <article class="topic-panel">
+                <h2>注目すべき電力取引市場</h2>
+                <p class="muted">市場名・オークション名の言及数と関係数</p>
+                {% if article_map.attention_insights.markets %}
+                <ol class="topic-list">
+                    {% for entity in article_map.attention_insights.markets %}
+                    <li><strong>{{ entity.name }}</strong><span>{{ entity.count }}件 · 接続 {{ entity.connections }}</span></li>
+                    {% endfor %}
+                </ol>
+                {% else %}
+                <p class="muted">該当する市場名は見つかりませんでした。</p>
+                {% endif %}
+            </article>
+        </section>
+
+        {% if article_map.nodes %}
+        <section class="map-layout">
+            <div class="map-canvas-shell">
+                <svg id="article-map" class="article-map" aria-label="Saved article relationship map"></svg>
+            </div>
+            <aside id="map-detail" class="map-detail" aria-live="polite">
+                <p class="muted">Select an article node to inspect its connections.</p>
+            </aside>
+        </section>
+        <script id="article-map-data" type="application/json">{{ article_map | tojson }}</script>
+        {% else %}
+        <section class="empty-state">Save articles from the Articles page to build your map.</section>
+        {% endif %}
+    </main>
+</body>
+</html>
