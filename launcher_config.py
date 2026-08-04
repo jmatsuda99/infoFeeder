@@ -20,7 +20,7 @@ EDGE_CANDIDATE_PATHS = [
 ]
 
 WEB_APP_PATH = ROOT_DIR / "run_web.py"
-WEB_PORT = 8510
+WEB_PORT = 8512
 WEB_URL = f"http://127.0.0.1:{WEB_PORT}"
 WEB_READY_URL = f"{WEB_URL}/health"
 WEB_ARGS = [str(WEB_APP_PATH)]

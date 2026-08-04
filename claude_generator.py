@@ -16,11 +16,7 @@ CLAUDE_TIMEOUT_SECONDS = 180
 FETCH_TIMEOUT_SECONDS = 20
 MAX_ARTICLE_TEXT_CHARS = 16000
 
-PROMPT_TEMPLATE = """あなたは記事要約アシスタントです。
-ユーザーから「記事タイトル＋URL」が入力されたら、以下のルールに厳密に従って要約してください。
-
-■ 入力形式
-記事タイトル＋URL＋取得できた記事本文
+PROMPT_TEMPLATE = """あなたは記事要約アシスタントです。与えられた記事本文だけを根拠に、日本語で短く正確に要約してください。
 
 記事タイトル: {title}
 URL: {url}
@@ -28,43 +24,20 @@ URL: {url}
 記事本文:
 {article_text}
 
-■ 出力形式
-以下の順番で、純テキストのみで出力してください。
-タイトル（太字）
-要約（再構成）
-日本語
-1〜2文
-原文内容に完全準拠
-箇条書き
-3点
-内容・背景・影響などを簡潔に整理
-#タグ
-英語で3つ
-URL
-フルリンクを1行のみで記載
+厳守条件:
+- 要約は記事本文に書かれている内容だけに基づいてください。
+- 推測、補完、一般知識、感想、前置きは禁止です。
+- 本文の一部に文字化けがあっても、全体として内容を読み取れるなら通常どおり要約してください。
+- エンコーディングや文字化けについては、本文理解が不可能な場合にだけ触れてください。
+- 本文理解が不可能な場合は、要約せず「Summary skipped:」で始まる1文だけを返してください。
+- 本文理解が可能な場合は、「記事本文を確認しました」や「以下に要約します」などの説明文を書かないでください。
+- URLは最後の1行に生のURLだけを書いてください。Markdownリンク形式は禁止です。
+- 出力は下のテンプレートに厳密に従ってください。
 
-■ 厳守条件
-記事本文が確認できた場合のみ要約してください。
-記事本文を確認できない場合は、要約せず、理由を明記して停止してください。
-要約は、上記の確認できた記事本文に完全に準拠してください。
-推測、補完、一般知識の混入は禁止です。
-表現の再構成は可能ですが、意味の改変は禁止です。
-元記事内で一次情報、公式発表、企業リリースなどが特定できる場合は、一次ソースを優先してください。
-一次ソースを確認できる場合は、その一次ソースを基準に要約してください。
-その場合、出力するURLも一次ソースのURLへ置き換えてください。
-情報の純度を重視し、意見、解釈、余計な文脈は一切加えないでください。
-バッチ、出典ラベル、媒体名表示は禁止です。
-「下野新聞デジタル」などのUIバッジ、出典タグ、媒体タグは出力しないでください。
-リンクはURL欄の1行のみとしてください。
-カード表示、プレビュー、装飾リンクは禁止です。
-出力は純テキストのみで構成してください。
-余計なUI要素、メタ情報、説明文は一切出力しないでください。
-
-■ 出力テンプレート
+出力テンプレート:
 **タイトル**
 
-要約本文。
-必要に応じて2文目。
+1〜2文の要約
 
 - 箇条書き1
 - 箇条書き2
@@ -99,6 +72,43 @@ def _normalize_article_text(html_text: str) -> str:
     return text
 
 
+def _extract_meta_charset(raw_bytes: bytes) -> str:
+    head = raw_bytes[:4096]
+    match = re.search(br"<meta[^>]+charset=['\"]?\s*([a-zA-Z0-9_\-]+)", head, re.IGNORECASE)
+    if match:
+        return match.group(1).decode("ascii", errors="ignore").lower()
+    match = re.search(
+        br"<meta[^>]+content=['\"][^>]*charset=([a-zA-Z0-9_\-]+)",
+        head,
+        re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).decode("ascii", errors="ignore").lower()
+    return ""
+
+
+def _decode_article_html(raw_bytes: bytes, header_charset: str = "") -> str:
+    candidates = []
+    for encoding in (
+        (header_charset or "").strip().lower(),
+        _extract_meta_charset(raw_bytes),
+        "utf-8",
+        "cp932",
+        "shift_jis",
+        "euc-jp",
+    ):
+        if encoding and encoding not in candidates:
+            candidates.append(encoding)
+
+    for encoding in candidates:
+        try:
+            return raw_bytes.decode(encoding)
+        except (LookupError, UnicodeDecodeError):
+            continue
+
+    return raw_bytes.decode("utf-8", errors="replace")
+
+
 def _fetch_article_text(url: str) -> str:
     request = Request(
         url,
@@ -112,8 +122,8 @@ def _fetch_article_text(url: str) -> str:
     )
     with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
         raw_bytes = response.read()
-        content_type = response.headers.get_content_charset() or "utf-8"
-    html_text = raw_bytes.decode(content_type, errors="replace")
+        header_charset = response.headers.get_content_charset() or ""
+    html_text = _decode_article_html(raw_bytes, header_charset)
     return _normalize_article_text(html_text)
 
 

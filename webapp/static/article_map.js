@@ -42,7 +42,7 @@
     };
     const nodesById = new Map(graph.nodes.map((node, index) => [node.id, {
         ...node,
-        radius: radiusForDegree(node.degree),
+        radius: node.degree === maxDegree ? radiusForDegree(node.degree) : radiusForDegree(node.degree) * 0.65,
         x: width / 2 + Math.cos((index / Math.max(graph.nodes.length, 1)) * Math.PI * 2) * 180,
         y: height / 2 + Math.sin((index / Math.max(graph.nodes.length, 1)) * Math.PI * 2) * 160,
     }]));

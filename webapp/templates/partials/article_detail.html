@@ -3,6 +3,19 @@
     <div class="detail-block">
         <div class="detail-heading">
             <h4>Generated overview</h4>
+            <div>
+            {% if group.is_saved %}
+            <button
+                type="button"
+                class="copy-button detail-copy-button"
+                hx-post="/articles/detail/regenerate"
+                hx-target="closest .detail-panel"
+                hx-swap="outerHTML"
+                hx-vals='js:{article_key_value: {{ group.article_key | tojson }}}'
+            >
+                要約を再生成
+            </button>
+            {% endif %}
             {% if group.generated_overview %}
             <button
                 type="button"
@@ -14,6 +27,7 @@
                 &#35201;&#32004;&#12434;&#12467;&#12500;&#12540;
             </button>
             {% endif %}
+            </div>
         </div>
         {% if group.generated_overview %}
         <div class="generated-overview">{{ group.generated_overview|format_generated_overview }}</div>

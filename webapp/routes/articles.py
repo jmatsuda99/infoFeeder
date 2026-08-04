@@ -144,6 +144,20 @@ def article_detail(request: Request, article_id: int):
     )
 
 
+@router.post("/articles/detail/regenerate", response_class=HTMLResponse)
+def regenerate_article_detail(
+    request: Request,
+    article_key_value: str = Form(...),
+):
+    generate_and_store_overview(article_key_value)
+    group = get_article_group_by_article_key(article_key_value)
+    return templates.TemplateResponse(
+        request,
+        "partials/article_detail.html",
+        {"request": request, "group": group, "app_version": read_app_version()},
+    )
+
+
 @router.post("/articles/fetch", response_class=HTMLResponse)
 def fetch_articles_now(
     request: Request,
