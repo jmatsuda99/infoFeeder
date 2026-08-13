@@ -14,6 +14,7 @@ from article_utils import article_key, title_merge_key
 from category_classifier import classify_article
 from db import get_conn, get_excluded_domain_keywords, set_app_state
 from exclusion_rules import is_excluded_domain_url_by_keywords
+from noise_filter import is_noise_article
 from policy_sources import get_committee_watch_source, get_official_watch_source, get_policy_design_source
 TRACKING_QUERY_KEYS = {
     "utm_source",
@@ -384,6 +385,7 @@ def insert_feed_rows(
     rows,
     excluded_domain_keywords,
     *,
+    feed_url="",
     feed_category="",
     feed_source_type="rss",
     force_unread=False,
@@ -404,7 +406,8 @@ def insert_feed_rows(
         ak = article_key(title, link)
         tk = title_merge_key(title)
         topic_category = classify_article(title, summary, feed_category, feed_source_type)
-        prepared.append((title, link, published, summary, ak, tk, topic_category))
+        is_noise = 1 if is_noise_article(title, summary, link, feed_url, feed_category) else 0
+        prepared.append((title, link, published, summary, ak, tk, topic_category, is_noise))
         keys_for_prefetch.append(ak)
 
     if not prepared:
@@ -413,15 +416,15 @@ def insert_feed_rows(
     read_by_key = {} if force_unread else prefetch_read_status(cur, keys_for_prefetch)
     inserted = 0
     fetched_at = datetime.now().isoformat(timespec="seconds")
-    for title, link, published, summary, ak, tk, topic_category in prepared:
+    for title, link, published, summary, ak, tk, topic_category, is_noise in prepared:
         if skip_existing_links and cur.execute("SELECT 1 FROM items WHERE link=? LIMIT 1", (link,)).fetchone():
             continue
         existing_read = read_by_key.get(ak, 0)
         cur.execute(
             """
             INSERT OR IGNORE INTO items
-            (feed_id,title,link,article_key,title_key,published,summary,topic_category,is_read,fetched_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
+            (feed_id,title,link,article_key,title_key,published,summary,topic_category,is_noise,is_read,fetched_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 feed_id,
@@ -432,6 +435,7 @@ def insert_feed_rows(
                 published,
                 summary,
                 topic_category,
+                is_noise,
                 existing_read,
                 fetched_at,
             ),
@@ -567,11 +571,13 @@ def fetch_active_feeds(source_type=None):
             if result["ok"]:
                 feed_source_type = next(row["source_type"] for row in feeds if row["id"] == feed_id)
                 feed_category = next(row["category"] for row in feeds if row["id"] == feed_id)
+                feed_url = next(row["url"] for row in feeds if row["id"] == feed_id)
                 inserted += insert_feed_rows(
                     cur,
                     feed_id,
                     result["rows"],
                     excluded_domain_keywords,
+                    feed_url=feed_url or "",
                     feed_category=feed_category or "",
                     feed_source_type=feed_source_type,
                     force_unread=feed_source_type

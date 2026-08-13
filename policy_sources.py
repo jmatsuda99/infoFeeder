@@ -69,6 +69,22 @@ POLICY_DESIGN_SOURCES = (
         "title_prefix": "次世代電力系統WG",
         "meeting_title_required": True,
     },
+    {
+        "name": "分散型エネルギー推進戦略WG",
+        "url": "https://www.meti.go.jp/shingikai/enecho/denryoku_gas/jisedai_kiban/distributed_energy_wg/index.html",
+        "category": "制度設計",
+        "path_prefix": "/shingikai/enecho/denryoku_gas/jisedai_kiban/distributed_energy_wg/",
+        "title_prefix": "分散型エネルギー推進戦略WG",
+        "meeting_title_required": True,
+    },
+    {
+        "name": "制度検討作業部会",
+        "url": "https://www.meti.go.jp/shingikai/enecho/denryoku_gas/denryoku_gas/seido_kento/index.html",
+        "category": "制度設計",
+        "path_prefix": "/shingikai/enecho/denryoku_gas/denryoku_gas/seido_kento/",
+        "title_prefix": "制度検討作業部会",
+        "meeting_title_required": True,
+    },
 )
 
 OFFICIAL_WATCH_SOURCES = (

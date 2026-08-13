@@ -9,6 +9,7 @@ from article_utils import article_key, merge_group_key, title_merge_key
 from category_classifier import classify_article
 from exclusion_rules import DEFAULT_EXCLUDED_DOMAIN_NAMES, resolve_excluded_domain_keywords
 from jst_format import is_recent_article
+from noise_filter import is_noise_article
 from policy_sources import (
     COMMITTEE_WATCH_SOURCES,
     INTERNATIONAL_RSS_SOURCES,
@@ -166,6 +167,8 @@ def init_db():
                 cur.execute("ALTER TABLE items ADD COLUMN generated_at TEXT")
             if "topic_category" not in item_columns:
                 cur.execute("ALTER TABLE items ADD COLUMN topic_category TEXT")
+            if "is_noise" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN is_noise INTEGER DEFAULT 0")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_article_key ON items(article_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_title_key ON items(title_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_published ON items(published)")
@@ -311,6 +314,24 @@ def init_db():
                 cur.execute(
                     "UPDATE items SET topic_category=? WHERE id=?",
                     (refreshed_topic_category, row["id"])
+                )
+
+            noise_rows_to_refresh = cur.execute("""
+                SELECT i.id, i.title, i.summary, i.link, i.is_noise,
+                       f.url AS feed_url, f.category AS feed_category
+                FROM items i
+                JOIN feeds f ON i.feed_id = f.id
+            """).fetchall()
+            for row in noise_rows_to_refresh:
+                refreshed_is_noise = 1 if is_noise_article(
+                    row["title"], row["summary"], row["link"] or "",
+                    row["feed_url"] or "", row["feed_category"] or ""
+                ) else 0
+                if (row["is_noise"] or 0) == refreshed_is_noise:
+                    continue
+                cur.execute(
+                    "UPDATE items SET is_noise=? WHERE id=?",
+                    (refreshed_is_noise, row["id"])
                 )
 
             cur.execute("ANALYZE")
@@ -559,6 +580,7 @@ def list_articles(keyword="", category=""):
     FROM items i
     JOIN feeds f ON i.feed_id = f.id
     WHERE 1=1
+    AND COALESCE(i.is_noise, 0) = 0
     """
 
     params = []
