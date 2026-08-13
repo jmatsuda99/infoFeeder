@@ -324,40 +324,46 @@ def init_db():
                     (source["name"], source["url"], source["site_url"], source["category"], now, now),
                 )
 
-            topic_rows_to_refresh = cur.execute("""
-                SELECT i.id, i.title, i.summary, i.topic_category,
-                       f.category AS feed_category, f.source_type AS feed_source_type
+            # Recompute topic_category and is_noise together (in that order)
+            # for every article, since is_noise_article's stage-1 anchor-word
+            # check (see noise_filter.SYSTEM_ANCHOR_SCOPE_CATEGORIES) needs
+            # the freshly classified topic_category, not the possibly-stale
+            # value already stored on the row.
+            rows_to_refresh = cur.execute("""
+                SELECT i.id, i.title, i.summary, i.link, i.topic_category, i.is_noise,
+                       f.url AS feed_url, f.category AS feed_category, f.source_type AS feed_source_type
                 FROM items i
                 JOIN feeds f ON i.feed_id = f.id
             """).fetchall()
-            for row in topic_rows_to_refresh:
+            for row in rows_to_refresh:
                 refreshed_topic_category = classify_article(
                     row["title"], row["summary"], row["feed_category"] or "", row["feed_source_type"] or "rss"
                 )
-                if row["topic_category"] == refreshed_topic_category:
-                    continue
-                cur.execute(
-                    "UPDATE items SET topic_category=? WHERE id=?",
-                    (refreshed_topic_category, row["id"])
-                )
-
-            noise_rows_to_refresh = cur.execute("""
-                SELECT i.id, i.title, i.summary, i.link, i.is_noise,
-                       f.url AS feed_url, f.category AS feed_category
-                FROM items i
-                JOIN feeds f ON i.feed_id = f.id
-            """).fetchall()
-            for row in noise_rows_to_refresh:
                 refreshed_is_noise = 1 if is_noise_article(
                     row["title"], row["summary"], row["link"] or "",
-                    row["feed_url"] or "", row["feed_category"] or ""
+                    row["feed_url"] or "", row["feed_category"] or "",
+                    topic_category=refreshed_topic_category,
                 ) else 0
-                if (row["is_noise"] or 0) == refreshed_is_noise:
+
+                topic_changed = row["topic_category"] != refreshed_topic_category
+                noise_changed = (row["is_noise"] or 0) != refreshed_is_noise
+                if not topic_changed and not noise_changed:
                     continue
-                cur.execute(
-                    "UPDATE items SET is_noise=? WHERE id=?",
-                    (refreshed_is_noise, row["id"])
-                )
+                if topic_changed and noise_changed:
+                    cur.execute(
+                        "UPDATE items SET topic_category=?, is_noise=? WHERE id=?",
+                        (refreshed_topic_category, refreshed_is_noise, row["id"])
+                    )
+                elif topic_changed:
+                    cur.execute(
+                        "UPDATE items SET topic_category=? WHERE id=?",
+                        (refreshed_topic_category, row["id"])
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE items SET is_noise=? WHERE id=?",
+                        (refreshed_is_noise, row["id"])
+                    )
 
             cur.execute("ANALYZE")
             conn.commit()

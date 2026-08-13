@@ -174,6 +174,92 @@ STRONG_RETAIN_KEYWORDS = _ALL_RETAIN_KEYWORD_CANDIDATES - WEAK_RETAIN_KEYWORDS
 # JEPX, FIT, ...); pre-lowering the set once keeps the hot path cheap.
 _STRONG_RETAIN_KEYWORDS_LOWER = tuple(keyword.lower() for keyword in STRONG_RETAIN_KEYWORDS)
 
+# --- Stage-1 rollout: "electricity system as a whole" anchor keywords -----
+#
+# New project policy narrows what counts as "電力事情そのもの" (the
+# electricity situation itself) to the electricity *system*: storage,
+# trading, supply-demand, the grid, tariffs/institutions. Because this is a
+# large-impact change (James's simulation found 61.2% of the 11,296 held
+# articles would become noise-candidates under the new criteria across the
+# full taxonomy), it is being rolled out in stages rather than applied
+# everywhere at once. Stage 1 (this change) applies the stricter anchor-word
+# requirement only to the three topic_category values whose impact was
+# smallest in James's simulation: 制度設計 (23.8%), 電力市場 (16.1%),
+# 事業者動向 (53.9%). See SYSTEM_ANCHOR_SCOPE_CATEGORIES and the
+# topic_category handling in is_noise_article.
+#
+# Generation-technology categories (再生可能エネルギー, 脱炭素・カーボン
+# ニュートラル, 水素・アンモニア, 火力・化石燃料, 原子力, EV・モビリティ,
+# データセンター・AI電力, 国際動向, ...) are explicitly OUT of scope for this
+# change and must keep using the existing STRONG_RETAIN_KEYWORDS-only logic
+# unchanged.
+SYSTEM_ANCHOR_KEYWORDS = frozenset(
+    {
+        # 蓄電
+        "蓄電池",
+        "蓄電所",
+        "蓄電システム",
+        "ESS",
+        "BESS",
+        "蓄電",
+        # 電力取引・市場
+        "電力取引",
+        "卸電力",
+        "スポット市場",
+        "容量市場",
+        "需給調整市場",
+        "JEPX",
+        "OCCTO",
+        # 需給
+        "需給",
+        "電力需給",
+        "需給ひっ迫",
+        "需給逼迫",
+        "需給バランス",
+        "需給調整",
+        # 系統
+        "系統",
+        "グリッド",
+        "送配電",
+        "送電",
+        "配電",
+        "変電",
+        # 料金・制度
+        "料金",
+        "電気料金",
+        "託送",
+        "FIT",
+        "FIP",
+        "再エネ賦課金",
+        "電気事業法",
+        # 電力事業者名
+        "東京電力",
+        "関西電力",
+        "中部電力",
+        "東北電力",
+        "北海道電力",
+        "九州電力",
+        "四国電力",
+        "中国電力",
+        "北陸電力",
+        "沖縄電力",
+        "JERA",
+    }
+)
+
+_SYSTEM_ANCHOR_KEYWORDS_LOWER = tuple(keyword.lower() for keyword in SYSTEM_ANCHOR_KEYWORDS)
+
+# topic_category values (as produced by category_classifier.classify_article)
+# that the stage-1 anchor-word requirement applies to. All other
+# topic_category values (including "" for callers that don't pass one) skip
+# the anchor check entirely and fall through to the unchanged legacy logic.
+SYSTEM_ANCHOR_SCOPE_CATEGORIES = frozenset({"制度設計", "電力市場", "事業者動向"})
+
+
+def _contains_system_anchor_keyword(text):
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in _SYSTEM_ANCHOR_KEYWORDS_LOWER)
+
 # "反原発"/"脱原発"/"反原子力"/"脱原子力" are political/social-movement
 # phrasing that can appear in articles with nothing to do with the
 # electricity situation itself (e.g. id=1250746: a company-law-reform
@@ -383,8 +469,15 @@ def _matches_esg_declaration_noise(text):
     return True
 
 
-def is_noise_article(title, summary, link, feed_url, feed_category):
+def is_noise_article(title, summary, link, feed_url, feed_category, topic_category=""):
     """Whether an article should be hidden from the default article list.
+
+    `topic_category` is the value already computed by
+    `category_classifier.classify_article()` for this article (callers
+    should classify first and pass the result here). It defaults to "" for
+    backward compatibility with existing call sites that have not been
+    updated; "" behaves the same as any topic_category outside
+    SYSTEM_ANCHOR_SCOPE_CATEGORIES (i.e. the stage-1 check below is skipped).
 
     Priority order:
     1. Curated feeds (see CURATED_FEED_URLS) are never noise: the feed
@@ -411,6 +504,21 @@ def is_noise_article(title, summary, link, feed_url, feed_category):
         in the same title + summary, in which case this check is skipped
         and the article falls through to the normal STRONG_RETAIN_KEYWORDS
         flow below.
+    4c. Stage-1 "electricity system as a whole" anchor check (see
+        SYSTEM_ANCHOR_KEYWORDS / SYSTEM_ANCHOR_SCOPE_CATEGORIES): only when
+        `topic_category` is one of 制度設計 / 電力市場 / 事業者動向, the
+        article is required to contain at least one SYSTEM_ANCHOR_KEYWORDS
+        term (storage, trading/market, supply-demand, grid,
+        tariff/institution, or a named utility) somewhere in title +
+        summary. If it does, the article proceeds to step 5 as normal. If it
+        does not, the article is noise -- *regardless* of any
+        STRONG_RETAIN_KEYWORDS hit -- because this stage's stricter
+        criterion overrides the legacy keyword match for these three
+        categories. Every other topic_category (including "" and the
+        generation-technology categories such as 再生可能エネルギー,
+        脱炭素・カーボンニュートラル, 水素・アンモニア, 火力・化石燃料,
+        原子力, EV・モビリティ, データセンター・AI電力, 国際動向, その他)
+        skips this check entirely and falls through to step 5 unchanged.
     5. Otherwise, judged by keyword presence in title + summary (HTML tags
        stripped, plus any Google-highlighted <b> terms, and with
        "反原発"/"脱原発"/"反原子力"/"脱原子力" opposition-phrase wording
@@ -452,6 +560,16 @@ def is_noise_article(title, summary, link, feed_url, feed_category):
         combined = ""
 
     combined = f"{combined} {stripped_combined}"
+
+    # Stage-1 rollout: for the three in-scope categories only, require an
+    # explicit "electricity system as a whole" anchor term before allowing
+    # the article to reach the (looser) STRONG_RETAIN_KEYWORDS check below.
+    # Categories outside SYSTEM_ANCHOR_SCOPE_CATEGORIES (including "" and
+    # every generation-technology category) are untouched by this change.
+    if topic_category in SYSTEM_ANCHOR_SCOPE_CATEGORIES and not _contains_system_anchor_keyword(
+        combined
+    ):
+        return True
 
     # Strip "反原発"/"脱原発"/"反原子力"/"脱原子力" before the
     # STRONG_RETAIN_KEYWORDS scan so that opposition-phrase-only mentions of

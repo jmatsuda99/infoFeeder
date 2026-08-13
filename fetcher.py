@@ -419,7 +419,9 @@ def insert_feed_rows(
         ak = article_key(title, link)
         tk = title_merge_key(title)
         topic_category = classify_article(title, summary, feed_category, feed_source_type)
-        is_noise = 1 if is_noise_article(title, summary, link, feed_url, feed_category) else 0
+        is_noise = 1 if is_noise_article(
+            title, summary, link, feed_url, feed_category, topic_category=topic_category
+        ) else 0
         prepared.append((title, link, published, summary, ak, tk, topic_category, is_noise))
         keys_for_prefetch.append(ak)
 
