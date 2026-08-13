@@ -7,6 +7,7 @@ from html import unescape
 import json
 import re
 
+from article_utils import extract_bold_terms
 from jst_format import JST, is_recent_article, parse_datetime_value
 from webapp.article_groups import build_article_groups
 from db import list_articles
@@ -15,7 +16,6 @@ from db import list_articles
 _ENGLISH_WORDS = re.compile(r"[a-z0-9][a-z0-9_-]{2,}", re.IGNORECASE)
 _JAPANESE_RUNS = re.compile(r"[\u3040-\u30ff\u3400-\u9fff]{3,}")
 _HTML_TAGS = re.compile(r"<[^>]+>")
-_BOLD_TERMS = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
 _LATIN_COMPANY = re.compile(r"\b[A-Z][A-Za-z0-9&.-]*(?:\s+[A-Z][A-Za-z0-9&.-]*)*\b")
 _JAPANESE_COMPANY = re.compile(
     r"[A-Za-z0-9&.-]*[\u3040-\u30ff\u3400-\u9fff]{1,20}"
@@ -55,8 +55,8 @@ def _topic_terms(group):
     """Extract short displayable topic candidates from an article's text."""
     raw_text = f"{group.get('title', '')} {group.get('summary', '')}"
     terms = set()
-    for term in _BOLD_TERMS.findall(raw_text):
-        clean_term = _HTML_TAGS.sub("", unescape(term)).strip().lower()
+    for term in extract_bold_terms(raw_text):
+        clean_term = term.strip().lower()
         if len(clean_term) >= 3 and clean_term not in _STOP_WORDS:
             terms.add(clean_term)
 

@@ -1,5 +1,6 @@
 from fastapi import Request
 
+import category_classifier
 from db import get_summary_metrics_row
 from jst_format import format_jst_datetime
 from version import read_app_version
@@ -30,6 +31,7 @@ def build_index_context(
     keyword: str = "",
     read_filter: str = "all",
     saved_filter: str = "all",
+    category_filter: str = "",
     sort_order: str = "newest",
     limit: int = 50,
     fetch_message: str = "",
@@ -39,10 +41,12 @@ def build_index_context(
         "request": request,
         "app_version": read_app_version(),
         "metrics": get_formatted_metrics(),
-        "article_groups": get_article_groups(keyword, read_filter, saved_filter, sort_order, limit),
+        "article_groups": get_article_groups(keyword, category_filter, read_filter, saved_filter, sort_order, limit),
         "keyword": keyword,
         "read_filter": read_filter,
         "saved_filter": saved_filter,
+        "category_filter": category_filter,
+        "category_options": category_classifier.CATEGORY_TAXONOMY,
         "sort_order": sort_order,
         "limit": limit,
         "fetch_message": fetch_message,
@@ -63,6 +67,7 @@ def build_sources_context(request: Request, *, error_message: str = "", success_
         "request": request,
         "app_version": read_app_version(),
         "feeds": get_feed_rows(),
+        "category_options": category_classifier.CATEGORY_TAXONOMY,
         "error_message": error_message,
         "success_message": success_message,
     }

@@ -51,6 +51,26 @@ def unique_urls(urls):
     return unique
 
 
+_BOLD_TERMS = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
+
+
+def extract_bold_terms(text):
+    """Extract the terms Google Alerts highlights with <b>...</b> tags.
+
+    Returns the cleaned terms (HTML-unescaped, inner tags stripped, whitespace
+    collapsed) in the order they appear, keeping duplicates so callers can
+    weight repeated hits if they want to.
+    """
+    terms = []
+    for raw_term in _BOLD_TERMS.findall(text or ""):
+        clean_term = re.sub(r"<[^>]+>", "", raw_term)
+        clean_term = html.unescape(clean_term)
+        clean_term = re.sub(r"\s+", " ", clean_term).strip()
+        if clean_term:
+            terms.append(clean_term)
+    return terms
+
+
 def text_for_copy(title, link):
     clean_title = re.sub(r"<[^>]+>", "", title or "")
     clean_title = html.unescape(clean_title).strip()
@@ -108,6 +128,30 @@ def article_key(title, link):
     if normalized:
         return f"title:{normalized}"
     return f"link:{(link or '').strip()}"
+
+
+# Wire-service/press-release stories are routinely re-published under a different
+# URL on every portal that picks them up (Yahoo!, TBS NEWS DIG, docomo news, ...),
+# so article_key (URL-based) treats each republish as a distinct article. Below
+# this length, though, titles are generic enough ("お知らせ", "配布資料") that two
+# unrelated items could collide, so only titles at or above this length are used
+# to merge same-story duplicates across sources.
+TITLE_MERGE_MIN_LENGTH = 10
+
+
+def title_merge_key(title):
+    normalized = normalize_title(title)
+    if len(normalized) >= TITLE_MERGE_MIN_LENGTH:
+        return normalized
+    return ""
+
+
+def merge_group_key(article_key_value, title, title_key_value=None):
+    """Identity used to fold same-story republishes into a single display group."""
+    resolved_title_key = (title_key_value or "").strip() or title_merge_key(title)
+    if resolved_title_key:
+        return f"title:{resolved_title_key}"
+    return str(article_key_value or "")
 
 
 def deduplicate_articles(df):

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, Response
 
 from claude_generator import generate_and_store_overview
-from db import update_article_read_status, update_article_saved_status
+from db import update_articles_read_status, update_articles_saved_status
 from fetcher import fetch_active_feeds
 from jst_format import is_recent_article
 from version import read_app_version
@@ -13,6 +13,7 @@ from webapp.article_groups import (
     get_article_group_by_article_key,
     get_article_group_by_id,
     get_article_groups,
+    get_group_article_keys,
 )
 from webapp.auto_fetch import maybe_run_auto_fetch
 from webapp.context import get_formatted_metrics, render_index_template
@@ -25,6 +26,7 @@ def _list_filter_context(
     keyword: str = "",
     read_filter: str = "all",
     saved_filter: str = "all",
+    category_filter: str = "",
     sort_order: str = "newest",
     limit: int = 50,
 ):
@@ -32,6 +34,7 @@ def _list_filter_context(
         "keyword": keyword,
         "read_filter": read_filter,
         "saved_filter": saved_filter,
+        "category_filter": category_filter,
         "sort_order": sort_order,
         "limit": limit,
     }
@@ -82,6 +85,7 @@ def index(
     keyword: str = "",
     read_filter: str = "all",
     saved_filter: str = "all",
+    category_filter: str = "",
     sort_order: str = "newest",
     limit: int = 50,
     fetch_message: str = "",
@@ -92,6 +96,7 @@ def index(
         keyword=keyword,
         read_filter=read_filter,
         saved_filter=saved_filter,
+        category_filter=category_filter,
         sort_order=sort_order,
         limit=limit,
         fetch_message=fetch_message,
@@ -117,11 +122,12 @@ def article_list(
     keyword: str = "",
     read_filter: str = "all",
     saved_filter: str = "all",
+    category_filter: str = "",
     sort_order: str = "newest",
     limit: int = 50,
 ):
-    article_groups = get_article_groups(keyword, read_filter, saved_filter, sort_order, limit)
-    list_ctx = _list_filter_context(keyword, read_filter, saved_filter, sort_order, limit)
+    article_groups = get_article_groups(keyword, category_filter, read_filter, saved_filter, sort_order, limit)
+    list_ctx = _list_filter_context(keyword, read_filter, saved_filter, category_filter, sort_order, limit)
     return templates.TemplateResponse(
         request,
         "partials/article_list.html",
@@ -164,6 +170,7 @@ def fetch_articles_now(
     keyword: str = Form(""),
     read_filter: str = Form("all"),
     saved_filter: str = Form("all"),
+    category_filter: str = Form(""),
     sort_order: str = Form("newest"),
     limit: int = Form(50),
 ):
@@ -181,6 +188,7 @@ def fetch_articles_now(
         keyword=keyword,
         read_filter=read_filter,
         saved_filter=saved_filter,
+        category_filter=category_filter,
         sort_order=sort_order,
         limit=limit,
         fetch_message=fetch_message,
@@ -202,11 +210,12 @@ def update_read(
     keyword: str = Form(""),
     read_filter: str = Form("all"),
     saved_filter: str = Form("all"),
+    category_filter: str = Form(""),
     sort_order: str = Form("newest"),
     limit: int = Form(50),
 ):
-    update_article_read_status(article_key_value, is_read == "true")
-    list_ctx = _list_filter_context(keyword, read_filter, saved_filter, sort_order, limit)
+    update_articles_read_status(get_group_article_keys(article_key_value), is_read == "true")
+    list_ctx = _list_filter_context(keyword, read_filter, saved_filter, category_filter, sort_order, limit)
     return _article_card_response(request, article_key_value, **list_ctx)
 
 
@@ -218,11 +227,12 @@ def update_saved(
     keyword: str = Form(""),
     read_filter: str = Form("all"),
     saved_filter: str = Form("all"),
+    category_filter: str = Form(""),
     sort_order: str = Form("newest"),
     limit: int = Form(50),
 ):
-    update_article_saved_status(article_key_value, is_saved == "true")
+    update_articles_saved_status(get_group_article_keys(article_key_value), is_saved == "true")
     if is_saved == "true":
         generate_and_store_overview(article_key_value)
-    list_ctx = _list_filter_context(keyword, read_filter, saved_filter, sort_order, limit)
+    list_ctx = _list_filter_context(keyword, read_filter, saved_filter, category_filter, sort_order, limit)
     return _article_card_response(request, article_key_value, **list_ctx)

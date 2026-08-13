@@ -5,7 +5,8 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from article_utils import article_key
+from article_utils import article_key, merge_group_key, title_merge_key
+from category_classifier import classify_article
 from exclusion_rules import DEFAULT_EXCLUDED_DOMAIN_NAMES, resolve_excluded_domain_keywords
 from jst_format import is_recent_article
 from policy_sources import COMMITTEE_WATCH_SOURCES, OFFICIAL_WATCH_SOURCES, POLICY_DESIGN_SOURCES
@@ -140,6 +141,8 @@ def init_db():
             item_columns = {row["name"] for row in cur.execute("PRAGMA table_info(items)")}
             if "article_key" not in item_columns:
                 cur.execute("ALTER TABLE items ADD COLUMN article_key TEXT")
+            if "title_key" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN title_key TEXT")
             if "is_read" not in item_columns:
                 cur.execute("ALTER TABLE items ADD COLUMN is_read INTEGER DEFAULT 0")
             if "is_saved" not in item_columns:
@@ -154,21 +157,25 @@ def init_db():
                 cur.execute("ALTER TABLE items ADD COLUMN generated_overview_source TEXT")
             if "generated_at" not in item_columns:
                 cur.execute("ALTER TABLE items ADD COLUMN generated_at TEXT")
+            if "topic_category" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN topic_category TEXT")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_article_key ON items(article_key)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_items_title_key ON items(title_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_published ON items(published)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_feed_id ON items(feed_id)")
 
             rows_to_refresh = cur.execute("""
-                SELECT id, title, link, article_key
+                SELECT id, title, link, article_key, title_key
                 FROM items
             """).fetchall()
             for row in rows_to_refresh:
                 refreshed_article_key = article_key(row["title"], row["link"])
-                if row["article_key"] == refreshed_article_key:
+                refreshed_title_key = title_merge_key(row["title"])
+                if row["article_key"] == refreshed_article_key and row["title_key"] == refreshed_title_key:
                     continue
                 cur.execute(
-                    "UPDATE items SET article_key=? WHERE id=?",
-                    (refreshed_article_key, row["id"])
+                    "UPDATE items SET article_key=?, title_key=? WHERE id=?",
+                    (refreshed_article_key, refreshed_title_key, row["id"])
                 )
 
             cur.execute(
@@ -209,6 +216,14 @@ def init_db():
                     """,
                     (source["name"], source["url"], source["url"], source["category"], now, now),
                 )
+                cur.execute(
+                    """
+                    UPDATE feeds
+                    SET name=?, base_url=?, source_type='official_watch', category=?, is_active=1, updated_at=?
+                    WHERE url=? AND source_type != 'official_watch'
+                    """,
+                    (source["name"], source["url"], source["category"], now, source["url"]),
+                )
 
             for source in COMMITTEE_WATCH_SOURCES:
                 cur.execute(
@@ -218,6 +233,23 @@ def init_db():
                     VALUES (?, ?, ?, 'committee_json', ?, 1, ?, ?)
                     """,
                     (source["name"], source["url"], source["site_url"], source["category"], now, now),
+                )
+
+            topic_rows_to_refresh = cur.execute("""
+                SELECT i.id, i.title, i.summary, i.topic_category,
+                       f.category AS feed_category, f.source_type AS feed_source_type
+                FROM items i
+                JOIN feeds f ON i.feed_id = f.id
+            """).fetchall()
+            for row in topic_rows_to_refresh:
+                refreshed_topic_category = classify_article(
+                    row["title"], row["summary"], row["feed_category"] or "", row["feed_source_type"] or "rss"
+                )
+                if row["topic_category"] == refreshed_topic_category:
+                    continue
+                cur.execute(
+                    "UPDATE items SET topic_category=? WHERE id=?",
+                    (refreshed_topic_category, row["id"])
                 )
 
             cur.execute("ANALYZE")
@@ -406,6 +438,8 @@ def get_summary_metrics_row():
             """
             SELECT
                 MAX(COALESCE(article_key, '')) AS article_key,
+                MAX(COALESCE(title_key, '')) AS title_key,
+                MAX(title) AS title,
                 MAX(COALESCE(published, '')) AS published,
                 MAX(COALESCE(is_read, 0)) AS is_read
             FROM items
@@ -415,6 +449,15 @@ def get_summary_metrics_row():
             conn,
         )
         if not unread_groups.empty:
+            unread_groups["group_key"] = unread_groups.apply(
+                lambda row: merge_group_key(row["article_key"], row["title"], row["title_key"]),
+                axis=1,
+            )
+            unread_groups = (
+                unread_groups.groupby("group_key", sort=False)
+                .agg(published=("published", "max"), is_read=("is_read", "max"))
+                .reset_index()
+            )
             unread_groups = unread_groups[
                 unread_groups["published"].apply(is_recent_article) & unread_groups["is_read"].fillna(0).eq(0)
             ]
@@ -431,16 +474,17 @@ def get_summary_metrics_row():
         conn.close()
 
 
-def list_articles(keyword=""):
+def list_articles(keyword="", category=""):
     conn = get_conn()
 
     query = """
     SELECT
         MAX(i.id) as id,
         MAX(i.published) as published,
-        MAX(COALESCE(f.category, '')) as category,
+        MAX(COALESCE(i.topic_category, '')) as category,
         MAX(COALESCE(f.name, '')) as source_name,
         MAX(COALESCE(i.article_key, '')) as article_key,
+        MAX(COALESCE(i.title_key, '')) as title_key,
         MAX(COALESCE(i.is_read, 0)) as is_read,
         MAX(COALESCE(i.is_saved, 0)) as is_saved,
         MAX(COALESCE(i.saved_at, '')) as saved_at,
@@ -462,6 +506,10 @@ def list_articles(keyword=""):
         query += " AND (i.title LIKE ? OR i.summary LIKE ?)"
         like = f"%{keyword}%"
         params.extend([like, like])
+
+    if category:
+        query += " AND COALESCE(i.topic_category, '') = ?"
+        params.append(category)
 
     for excluded_keyword in get_excluded_domain_keywords():
         query += " AND LOWER(COALESCE(i.link, '')) NOT LIKE ?"
@@ -486,9 +534,10 @@ def get_item_with_feed_by_id(item_id):
             SELECT
                 i.id as id,
                 i.published as published,
-                COALESCE(f.category, '') as category,
+                COALESCE(i.topic_category, '') as category,
                 COALESCE(f.name, '') as source_name,
                 COALESCE(i.article_key, '') as article_key,
+                COALESCE(i.title_key, '') as title_key,
                 COALESCE(i.is_read, 0) as is_read,
                 COALESCE(i.is_saved, 0) as is_saved,
                 COALESCE(i.saved_at, '') as saved_at,
@@ -519,9 +568,10 @@ def list_articles_by_key(article_key_value):
             SELECT
                 i.id as id,
                 i.published as published,
-                COALESCE(f.category, '') as category,
+                COALESCE(i.topic_category, '') as category,
                 COALESCE(f.name, '') as source_name,
                 COALESCE(i.article_key, '') as article_key,
+                COALESCE(i.title_key, '') as title_key,
                 COALESCE(i.is_read, 0) as is_read,
                 COALESCE(i.is_saved, 0) as is_saved,
                 COALESCE(i.saved_at, '') as saved_at,
@@ -538,6 +588,42 @@ def list_articles_by_key(article_key_value):
             ORDER BY COALESCE(i.published, '') DESC, i.id DESC
             """,
             (article_key_value,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def list_articles_by_title_key(title_key_value):
+    """All items sharing a title_key, e.g. the same press release republished by several portals."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        rows = cur.execute(
+            """
+            SELECT
+                i.id as id,
+                i.published as published,
+                COALESCE(i.topic_category, '') as category,
+                COALESCE(f.name, '') as source_name,
+                COALESCE(i.article_key, '') as article_key,
+                COALESCE(i.title_key, '') as title_key,
+                COALESCE(i.is_read, 0) as is_read,
+                COALESCE(i.is_saved, 0) as is_saved,
+                COALESCE(i.saved_at, '') as saved_at,
+                COALESCE(i.generated_overview, '') as generated_overview,
+                COALESCE(i.generated_overview_error, '') as generated_overview_error,
+                COALESCE(i.generated_overview_source, '') as generated_overview_source,
+                COALESCE(i.generated_at, '') as generated_at,
+                i.link as link,
+                COALESCE(i.title, '') as title,
+                COALESCE(i.summary, '') as summary
+            FROM items i
+            JOIN feeds f ON i.feed_id = f.id
+            WHERE COALESCE(i.title_key, '') = ? AND COALESCE(i.title_key, '') != ''
+            ORDER BY COALESCE(i.published, '') DESC, i.id DESC
+            """,
+            (title_key_value,),
         ).fetchall()
         return [dict(row) for row in rows]
     finally:
@@ -578,6 +664,29 @@ def update_article_saved_status(article_key_value, is_saved):
     run_with_retry(_update_article_saved_status)
 
 
+def update_articles_saved_status(article_keys, is_saved):
+    keys = [key for key in article_keys if key]
+    if not keys:
+        return
+
+    now = datetime.now().isoformat(timespec="seconds")
+    placeholders = ",".join(["?"] * len(keys))
+
+    def _update_articles_saved_status():
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"UPDATE items SET is_saved=?, saved_at=? WHERE article_key IN ({placeholders})",
+                [1 if is_saved else 0, now if is_saved else None, *keys]
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    run_with_retry(_update_articles_saved_status)
+
+
 def get_article_generation_input(article_key_value):
     conn = get_conn()
     cur = conn.cursor()
@@ -590,7 +699,7 @@ def get_article_generation_input(article_key_value):
                 COALESCE(i.link, '') as link,
                 COALESCE(i.summary, '') as summary,
                 COALESCE(f.name, '') as source_name,
-                COALESCE(f.category, '') as category
+                COALESCE(i.topic_category, '') as category
             FROM items i
             JOIN feeds f ON i.feed_id = f.id
             WHERE COALESCE(i.article_key, '') = ?

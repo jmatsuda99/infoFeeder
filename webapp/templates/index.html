@@ -138,6 +138,7 @@
                 <input type="hidden" name="keyword" value="{{ keyword }}">
                 <input type="hidden" name="read_filter" value="{{ read_filter }}">
                 <input type="hidden" name="saved_filter" value="{{ saved_filter }}">
+                <input type="hidden" name="category_filter" value="{{ category_filter }}">
                 <input type="hidden" name="sort_order" value="{{ sort_order }}">
                 <input type="hidden" name="limit" value="{{ limit }}">
                 <button type="submit">Fetch articles now</button>
@@ -166,6 +167,12 @@
                 <select name="saved_filter">
                     <option value="all" {% if saved_filter == "all" %}selected{% endif %}>All saved states</option>
                     <option value="saved" {% if saved_filter == "saved" %}selected{% endif %}>Saved only</option>
+                </select>
+                <select name="category_filter">
+                    <option value="" {% if category_filter == "" %}selected{% endif %}>All categories</option>
+                    {% for c in category_options %}
+                    <option value="{{ c }}" {% if category_filter == c %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
                 </select>
                 <select name="sort_order">
                     <option value="newest" {% if sort_order == "newest" %}selected{% endif %}>Newest</option>

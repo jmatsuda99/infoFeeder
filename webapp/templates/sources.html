@@ -41,7 +41,12 @@
             <form method="post" action="/sources/add" class="filters">
                 <input type="text" name="name" placeholder="Source name">
                 <input type="text" name="url" placeholder="Source URL">
-                <input type="text" name="category" placeholder="Category">
+                <select name="category">
+                    <option value="">Category</option>
+                    {% for c in category_options %}
+                    <option value="{{ c }}">{{ c }}</option>
+                    {% endfor %}
+                </select>
                 <div></div>
                 <div></div>
                 <button type="submit">Add source</button>
