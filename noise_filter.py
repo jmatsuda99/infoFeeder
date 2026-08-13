@@ -17,7 +17,11 @@ check entirely and are always treated as non-noise.
 Everything else (Google Alerts feeds, and general-purpose industry-media
 feeds added via the "Add source" form, e.g. 環境ビジネスオンライン, 日経GX,
 rief-jp, スマートジャパン) is judged by keyword presence in the title +
-summary: if none of RETAIN_KEYWORDS appears, the article is noise.
+summary: retained if any STRONG_RETAIN_KEYWORDS term is present; a
+WEAK_RETAIN_KEYWORDS-only match (generic terms like 委員会/審議会/需給/
+料金/小売 that are also common outside the electricity context) is not
+enough on its own, and the article is noise otherwise. See
+is_noise_article's docstring for the full priority order.
 """
 
 import re
@@ -97,6 +101,14 @@ _EXTRA_RETAIN_KEYWORDS = (
     "FIP",
     "再エネ賦課金",
     "電力・ガス",
+    "電気料金",
+    "電化",
+    # 電力系統の需給運用語（一般的な「需給」「委員会」単独より特定性が高い
+    # 複合語。広域機関(OCCTO)の需給調整・調整力・供給信頼度関連の委員会名
+    # 等で使われ、電力以外の文脈にはほぼ現れない）
+    "需給バランス評価",
+    "需給調整",
+    "供給信頼度",
     # 電力事業者名
     "東京電力",
     "関西電力",
@@ -111,19 +123,79 @@ _EXTRA_RETAIN_KEYWORDS = (
     "JERA",
 )
 
-RETAIN_KEYWORDS = frozenset(KEYWORD_CATEGORY_MAP.keys()) | frozenset(_EXTRA_RETAIN_KEYWORDS)
+_ALL_RETAIN_KEYWORD_CANDIDATES = frozenset(KEYWORD_CATEGORY_MAP.keys()) | frozenset(
+    _EXTRA_RETAIN_KEYWORDS
+)
+
+# These terms are too generic on their own to prove an article is about the
+# electricity situation: they are common vocabulary in unrelated meeting
+# bodies/legislation (委員会/審議会/検討会/専門会合), unrelated supply-demand
+# topics (需給), or pricing/retail topics outside electricity (料金/小売).
+# The rief-jp false-positive cluster investigated alongside id=1250746 was
+# largely caused by exactly these terms matching EU ESG-disclosure articles
+# (国際サステナビリティ基準審議会, 欧州委員会, ...) and other unrelated
+# committee/council/pricing articles.
+#
+# 原発/原子力 were *not* kept here even though id=1250746's false positive
+# was caused by "原発" (matched only inside "反原発"): empirically,
+# demoting them to a co-occurrence requirement caused 6 real nuclear-power
+# articles (e.g. "3.11から15年、原発事故後の東電に足りなかったもの",
+# "「原発11～14基の建て替え必要」政府、2050年代見通しを初明示", France's
+# Gravelines plant cooling shutdown) to be misclassified as noise, because
+# their title/summary had no other STRONG_RETAIN_KEYWORDS term -- a false
+# negative rate far higher than the single false positive being fixed.
+# Instead, 原発/原子力 stay in STRONG_RETAIN_KEYWORDS, and the specific
+# "反原発"/"脱原発"/"反原子力"/"脱原子力" opposition-phrase wording (the
+# actual source of id=1250746's false positive) is stripped out of the text
+# before the STRONG_RETAIN_KEYWORDS scan -- see _strip_opposition_phrases.
+WEAK_RETAIN_KEYWORDS = frozenset(
+    {
+        "委員会",
+        "審議会",
+        "検討会",
+        "専門会合",
+        "需給",
+        "料金",
+        "小売",
+    }
+) & _ALL_RETAIN_KEYWORD_CANDIDATES
+
+# Terms specific enough to electricity/energy that a single occurrence is
+# sufficient evidence to retain the article. WEAK_RETAIN_KEYWORDS are simply
+# excluded from this set: a WEAK-only match is never, on its own, enough to
+# retain an article (see is_noise_article). WEAK_RETAIN_KEYWORDS is kept as
+# its own named set purely to document which terms were demoted and why --
+# there is no separate "weak co-occurring with strong" check, because that
+# condition already implies a STRONG_RETAIN_KEYWORDS match, which the check
+# below handles on its own.
+STRONG_RETAIN_KEYWORDS = _ALL_RETAIN_KEYWORD_CANDIDATES - WEAK_RETAIN_KEYWORDS
 
 # Case-insensitive matching is needed for the Latin-script keywords (kWh,
-# JEPX, FIT, ...); pre-lowering the whole set once keeps the hot path cheap.
-_RETAIN_KEYWORDS_LOWER = tuple(keyword.lower() for keyword in RETAIN_KEYWORDS)
+# JEPX, FIT, ...); pre-lowering the set once keeps the hot path cheap.
+_STRONG_RETAIN_KEYWORDS_LOWER = tuple(keyword.lower() for keyword in STRONG_RETAIN_KEYWORDS)
+
+# "反原発"/"脱原発"/"反原子力"/"脱原子力" are political/social-movement
+# phrasing that can appear in articles with nothing to do with the
+# electricity situation itself (e.g. id=1250746: a company-law-reform
+# article mentioning "反原発の市民団体" only as one of several protest
+# groups). These exact compounds are stripped before the
+# STRONG_RETAIN_KEYWORDS scan so that a bare "原発"/"原子力" elsewhere in
+# the text (the normal case for genuine nuclear-power articles) still
+# matches.
+_OPPOSITION_PHRASE_RE = re.compile(r"(?:反|脱)(?:原発|原子力)")
+
+
+def _strip_opposition_phrases(text):
+    return _OPPOSITION_PHRASE_RE.sub(" ", text)
+
 
 # Domains that are dedicated overseas market-research report resellers, or
 # individual-stock/investing commentary sites. Their articles frequently
-# smuggle in a RETAIN_KEYWORDS hit (e.g. "再生可能エネルギー", "EV") as a
-# throwaway lead-in phrase while the actual content is an unrelated
+# smuggle in a STRONG_RETAIN_KEYWORDS hit (e.g. "再生可能エネルギー", "EV")
+# as a throwaway lead-in phrase while the actual content is an unrelated
 # component-market CAGR/size template ad, or stock-price/earnings-outlook
 # investor commentary that has nothing to do with the electricity situation
-# itself. A domain match here overrides RETAIN_KEYWORDS entirely.
+# itself. A domain match here overrides STRONG_RETAIN_KEYWORDS entirely.
 NOISE_DOMAIN_BLOCKLIST = frozenset(
     {
         "pando.life",
@@ -186,9 +258,9 @@ def _strip_html(text):
     return _HTML_TAG_RE.sub(" ", text or "")
 
 
-def _contains_retain_keyword(text):
+def _contains_strong_retain_keyword(text):
     text_lower = text.lower()
-    return any(keyword in text_lower for keyword in _RETAIN_KEYWORDS_LOWER)
+    return any(keyword in text_lower for keyword in _STRONG_RETAIN_KEYWORDS_LOWER)
 
 
 def _domain_from_link(link):
@@ -242,16 +314,27 @@ def is_noise_article(title, summary, link, feed_url, feed_category):
        titles.
     2. The article's own link domain is checked against
        NOISE_DOMAIN_BLOCKLIST (dedicated market-report/investing sites) --
-       always noise, regardless of RETAIN_KEYWORDS.
+       always noise, regardless of STRONG_RETAIN_KEYWORDS /
+       WEAK_RETAIN_KEYWORDS.
     3. The article's own link domain + path is checked against
        NOISE_PATH_PATTERNS (specific accounts/sections on otherwise
-       legitimate domains) -- always noise, regardless of RETAIN_KEYWORDS.
+       legitimate domains) -- always noise, regardless of
+       STRONG_RETAIN_KEYWORDS / WEAK_RETAIN_KEYWORDS.
     4. Title + summary is checked against NOISE_TITLE_PATTERNS (market
        report boilerplate phrasing) -- always noise, regardless of
-       RETAIN_KEYWORDS.
-    5. Otherwise, judged by RETAIN_KEYWORDS presence as before: an article
-       is noise only when neither its title nor its summary contains any
-       RETAIN_KEYWORDS term.
+       STRONG_RETAIN_KEYWORDS / WEAK_RETAIN_KEYWORDS.
+    5. Otherwise, judged by keyword presence in title + summary (HTML tags
+       stripped, plus any Google-highlighted <b> terms, and with
+       "反原発"/"脱原発"/"反原子力"/"脱原子力" opposition-phrase wording
+       removed -- see _strip_opposition_phrases):
+       - If any STRONG_RETAIN_KEYWORDS term is present, the article is
+         retained (not noise) -- these terms are specific enough to
+         electricity/energy that a single occurrence is sufficient evidence.
+       - WEAK_RETAIN_KEYWORDS terms (e.g. "委員会", "審議会", "需給", "料金",
+         "小売" -- generic terms also used in unrelated meeting-body,
+         supply-demand, or pricing/retail contexts) are excluded from this
+         check entirely: a WEAK-only match is never sufficient on its own.
+    6. If no STRONG_RETAIN_KEYWORDS term is found, the article is noise.
     """
     if feed_url in CURATED_FEED_URLS:
         return False
@@ -279,4 +362,19 @@ def is_noise_article(title, summary, link, feed_url, feed_category):
 
     combined = f"{combined} {stripped_combined}"
 
-    return not _contains_retain_keyword(combined)
+    # Strip "反原発"/"脱原発"/"反原子力"/"脱原子力" before the
+    # STRONG_RETAIN_KEYWORDS scan so that opposition-phrase-only mentions of
+    # 原発/原子力 (e.g. "反原発の市民団体" as one clause in an unrelated
+    # company-law article) don't count as a match, while genuine
+    # nuclear-power articles (which normally use a bare "原発"/"原子力")
+    # still do.
+    if _contains_strong_retain_keyword(_strip_opposition_phrases(combined)):
+        return False
+
+    # A WEAK_RETAIN_KEYWORDS-only match (no STRONG_RETAIN_KEYWORDS term
+    # anywhere in title + summary) is not sufficient evidence that the
+    # article is about the electricity situation -- fall through to noise.
+    # (No separate check is needed here: co-occurrence with a
+    # STRONG_RETAIN_KEYWORDS term was already handled above, so reaching
+    # this point means, at best, a weak-only match.)
+    return True
