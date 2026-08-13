@@ -1,3 +1,4 @@
+import io
 import re
 import subprocess
 from dataclasses import dataclass
@@ -5,6 +6,8 @@ from html import unescape
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+
+import pypdf
 
 from db import get_article_generation_input, update_article_generated_overview
 
@@ -57,12 +60,16 @@ class ClaudeOverviewResult:
     source_text: str
 
 
-def _normalize_article_text(html_text: str) -> str:
+def _strip_html_tags(html_text: str) -> str:
     text = re.sub(r"(?is)<script\b.*?</script>", " ", html_text)
     text = re.sub(r"(?is)<style\b.*?</style>", " ", text)
     text = re.sub(r"(?is)<noscript\b.*?</noscript>", " ", text)
     text = re.sub(r"(?s)<[^>]+>", " ", text)
     text = unescape(text)
+    return text
+
+
+def _collapse_whitespace_and_truncate(text: str) -> str:
     text = text.replace("\r", " ")
     text = re.sub(r"[ \t\u3000]+", " ", text)
     text = re.sub(r"\n\s*\n+", "\n", text)
@@ -70,6 +77,41 @@ def _normalize_article_text(html_text: str) -> str:
     if len(text) > MAX_ARTICLE_TEXT_CHARS:
         text = text[:MAX_ARTICLE_TEXT_CHARS]
     return text
+
+
+def _normalize_article_text(html_text: str) -> str:
+    text = _strip_html_tags(html_text)
+    return _collapse_whitespace_and_truncate(text)
+
+
+def _extract_pdf_text(raw_bytes: bytes) -> str:
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
+        if reader.is_encrypted:
+            try:
+                reader.decrypt("")
+            except Exception:
+                pass
+        page_texts = []
+        for page in reader.pages:
+            try:
+                page_texts.append(page.extract_text() or "")
+            except Exception:
+                continue
+        text = "\n".join(page_texts)
+    except Exception:
+        return ""
+    return _collapse_whitespace_and_truncate(text)
+
+
+def _looks_like_pdf(url: str, content_type: str, raw_bytes: bytes) -> bool:
+    if content_type == "application/pdf":
+        return True
+    if url.lower().split("?")[0].endswith(".pdf"):
+        return True
+    if raw_bytes[:5] == b"%PDF-":
+        return True
+    return False
 
 
 def _extract_meta_charset(raw_bytes: bytes) -> str:
@@ -123,6 +165,11 @@ def _fetch_article_text(url: str) -> str:
     with urlopen(request, timeout=FETCH_TIMEOUT_SECONDS) as response:
         raw_bytes = response.read()
         header_charset = response.headers.get_content_charset() or ""
+        content_type = response.headers.get_content_type() or ""
+
+    if _looks_like_pdf(url, content_type, raw_bytes):
+        return _extract_pdf_text(raw_bytes)
+
     html_text = _decode_article_html(raw_bytes, header_charset)
     return _normalize_article_text(html_text)
 
