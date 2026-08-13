@@ -579,6 +579,14 @@ def fetch_active_feeds(source_type=None):
 
         results.sort(key=lambda r: r["feed_id"])
         inserted = 0
+        # Commit after each feed (rather than once at the end) so a single feed
+        # whose processing runs long -- most notably one with several
+        # non-Japanese entries, each incurring a synchronous, up-to-60s Claude
+        # CLI translation call in insert_feed_rows() -- does not hold the write
+        # transaction open for the whole run. That would otherwise force other
+        # writers (e.g. POST /articles/read) to queue behind it up to
+        # busy_timeout. Per-feed commits also mean a later feed's failure no
+        # longer rolls back already-inserted rows from earlier feeds in this run.
         for result in results:
             feed_id = result["feed_id"]
             if result["ok"]:
@@ -602,8 +610,8 @@ def fetch_active_feeds(source_type=None):
                 update_feed_fetch_status(cur, feed_id, success=True)
             else:
                 update_feed_fetch_status(cur, feed_id, success=False, error_message=result["error"] or "")
+            conn.commit()
 
-        conn.commit()
         set_app_state("last_fetch_inserted_count", inserted)
         return inserted
     finally:

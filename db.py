@@ -1,7 +1,7 @@
 
 import sqlite3
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +27,29 @@ DB_TIMEOUT_SECONDS = 30
 DB_BUSY_TIMEOUT_MS = DB_TIMEOUT_SECONDS * 1000
 DB_RETRY_ATTEMPTS = 5
 DB_RETRY_DELAY_SECONDS = 0.4
+
+# Coarse SQL-side pre-filter margin, in days. jst_format.is_recent_article() only
+# shows articles published within the last ARTICLE_VISIBILITY_DAYS (7) days, but
+# items.published mixes several textual formats (ISO8601 with/without "Z",
+# "YYYY-MM-DD HH:MM:SS", and RFC 2822 strings such as "Fri, 07 Aug 2026 ..."), so
+# we cannot do an exact 7-day cutoff safely with plain string comparison in SQL.
+# Instead we use a much wider (30 day) margin here purely to shrink the row count
+# before it reaches pandas; the exact recency check still happens in Python via
+# is_recent_article(), which remains the single source of truth for correctness.
+SQL_PREFILTER_MARGIN_DAYS = 30
+
+
+def _sql_prefilter_cutoff():
+    """Best-effort lower bound for items.published, used only to shrink the
+    working set before the precise Python-side is_recent_article() filter runs.
+
+    Rows with NULL/empty published, or published values that don't start with a
+    4-digit year (e.g. RFC 2822 strings like "Fri, 07 Aug 2026 ..."), always sort
+    lexically ahead of/differently from a plain "YYYY-MM-DDTHH:MM:SS" cutoff and
+    must be handled by the caller so they are never excluded here.
+    """
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=SQL_PREFILTER_MARGIN_DAYS)
+    return cutoff_dt.strftime("%Y-%m-%dT%H:%M:%S")
 def configure_conn(conn):
     conn.row_factory = sqlite3.Row
     conn.execute(f"PRAGMA busy_timeout = {DB_BUSY_TIMEOUT_MS}")
@@ -173,6 +196,8 @@ def init_db():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_title_key ON items(title_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_published ON items(published)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_feed_id ON items(feed_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_items_is_noise ON items(is_noise)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_items_topic_category ON items(topic_category)")
 
             rows_to_refresh = cur.execute("""
                 SELECT id, title, link, article_key, title_key
@@ -526,9 +551,15 @@ def get_summary_metrics_row():
                 MAX(COALESCE(is_read, 0)) AS is_read
             FROM items
             WHERE COALESCE(article_key, '') != ''
+            AND (
+                COALESCE(is_read, 0) = 1
+                OR COALESCE(published, '') = ''
+                OR published >= ?
+            )
             GROUP BY article_key
             """,
             conn,
+            params=[_sql_prefilter_cutoff()],
         )
         if not unread_groups.empty:
             unread_groups["group_key"] = unread_groups.apply(
@@ -581,9 +612,18 @@ def list_articles(keyword="", category=""):
     JOIN feeds f ON i.feed_id = f.id
     WHERE 1=1
     AND COALESCE(i.is_noise, 0) = 0
+    AND (
+        COALESCE(i.published, '') = ''
+        OR i.published >= ?
+    )
     """
 
-    params = []
+    # Coarse pre-filter only (see _sql_prefilter_cutoff docstring): rows with
+    # NULL/empty published are always kept, matching is_recent_article()'s
+    # "unparseable => treat as recent" behavior. The exact 7-day recency check
+    # still happens in Python via is_recent_article(); this only shrinks the
+    # working set for performance and never narrows correctness.
+    params = [_sql_prefilter_cutoff()]
 
     if keyword:
         query += " AND (i.title LIKE ? OR i.summary LIKE ?)"
