@@ -10,12 +10,13 @@ from urllib.parse import parse_qsl, urlencode, parse_qs, urljoin, urlparse, urlu
 from urllib.request import Request, urlopen
 
 import feedparser
-from article_utils import article_key, title_merge_key
+from article_utils import article_key, is_non_japanese_text, split_source_name_prefix, title_merge_key
 from category_classifier import classify_article
 from db import get_conn, get_excluded_domain_keywords, set_app_state
 from exclusion_rules import is_excluded_domain_url_by_keywords
 from noise_filter import is_noise_article
 from policy_sources import get_committee_watch_source, get_official_watch_source, get_policy_design_source
+from translation import translate_title_summary
 TRACKING_QUERY_KEYS = {
     "utm_source",
     "utm_medium",
@@ -388,6 +389,7 @@ def insert_feed_rows(
     feed_url="",
     feed_category="",
     feed_source_type="rss",
+    feed_name="",
     force_unread=False,
     skip_existing_links=False,
 ):
@@ -403,6 +405,17 @@ def insert_feed_rows(
         summary = row["summary"]
         if not link or is_excluded_domain_url_by_keywords(link, excluded_domain_keywords):
             continue
+        # official_watch/policy_listing/committee_json titles are prefixed with
+        # the (often Japanese) source name, e.g. "IEA（国際エネルギー機関）: ...".
+        # Judge/translate only the article title itself so a Japanese source
+        # name does not mask an all-English article title from translation.
+        prefix, title_body = split_source_name_prefix(title, feed_name)
+        if is_non_japanese_text(title_body):
+            translation = translate_title_summary(title_body, summary)
+            if translation.ok:
+                title = f"{prefix}{translation.title_ja}"
+                if translation.summary_ja or not (summary or "").strip():
+                    summary = translation.summary_ja
         ak = article_key(title, link)
         tk = title_merge_key(title)
         topic_category = classify_article(title, summary, feed_category, feed_source_type)
@@ -544,7 +557,7 @@ def fetch_active_feeds(source_type=None):
     cur = conn.cursor()
 
     try:
-        query = "SELECT id,url,source_type,category FROM feeds WHERE is_active=1"
+        query = "SELECT id,url,source_type,category,name FROM feeds WHERE is_active=1"
         params = []
         if source_type:
             query += " AND source_type=?"
@@ -572,6 +585,7 @@ def fetch_active_feeds(source_type=None):
                 feed_source_type = next(row["source_type"] for row in feeds if row["id"] == feed_id)
                 feed_category = next(row["category"] for row in feeds if row["id"] == feed_id)
                 feed_url = next(row["url"] for row in feeds if row["id"] == feed_id)
+                feed_name = next(row["name"] for row in feeds if row["id"] == feed_id)
                 inserted += insert_feed_rows(
                     cur,
                     feed_id,
@@ -580,6 +594,7 @@ def fetch_active_feeds(source_type=None):
                     feed_url=feed_url or "",
                     feed_category=feed_category or "",
                     feed_source_type=feed_source_type,
+                    feed_name=feed_name or "",
                     force_unread=feed_source_type
                     in {"policy_listing", "official_watch", "committee_json"},
                     skip_existing_links=feed_source_type == "committee_json",

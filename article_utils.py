@@ -51,6 +51,47 @@ def unique_urls(urls):
     return unique
 
 
+_JAPANESE_CHAR_PATTERN = re.compile(r"[぀-ヿ㐀-鿿]")
+
+
+def is_non_japanese_text(text):
+    """Return True when text contains no Japanese characters at all.
+
+    Used to decide whether a title/summary needs machine translation before
+    it is stored. Empty/None text is treated as "not a translation target"
+    (False) rather than "non-Japanese", since there is nothing to translate.
+    """
+    if not text:
+        return False
+    if not text.strip():
+        return False
+    return not _JAPANESE_CHAR_PATTERN.search(text)
+
+
+def split_source_name_prefix(title, feed_name):
+    """Split a "<feed_name>: <article title>" lead-in off of ``title``.
+
+    official_watch/policy_listing/committee_json sources prepend their
+    (often Japanese) source name to every article title, e.g.
+    "IEA（国際エネルギー機関）: Oil market report". That prefix makes
+    is_non_japanese_text() see Japanese characters even when the article
+    title itself is entirely non-Japanese, so translation gets skipped.
+
+    Returns (prefix, remainder) where ``prefix`` is "" and remainder is the
+    original title unchanged when no such lead-in is present (e.g. plain
+    rss/Google Alerts titles), so callers can uniformly do:
+
+        prefix, body = split_source_name_prefix(title, feed_name)
+        # ... check/translate body ...
+        title = f"{prefix}{body}"
+    """
+    if feed_name:
+        prefix = f"{feed_name}: "
+        if title.startswith(prefix):
+            return prefix, title[len(prefix):]
+    return "", title
+
+
 _BOLD_TERMS = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
 
 
