@@ -123,6 +123,57 @@ OFFICIAL_WATCH_SOURCES = (
         "required_terms": (),
         "allowed_extensions": (".pdf",),
     },
+    {
+        "name": "CRIEPI（電力中央研究所）",
+        "url": "https://criepi.denken.or.jp/press/pressrelease/index.html",
+        "category": "CRIEPI",
+        "path_prefixes": (
+            "/press/pressrelease/2026/",
+            "/press/pressrelease/2025/",
+        ),
+        "required_terms": (),
+    },
+    {
+        # NOTE: the canonical listing page
+        # https://www.nedo.go.jp/news/press/presslist.html is a meta-refresh
+        # redirect-only page; urlopen() does not follow it, so it yields no
+        # entries. The real article links live on this event listing URL.
+        "name": "NEDO（新エネルギー・産業技術総合開発機構）",
+        "url": "https://www.nedo.go.jp/form/event.php?f=press.html",
+        "category": "NEDO",
+        "path_prefixes": ("/news/press/",),
+        "required_terms": (),
+    },
+    {
+        # Press releases are direct PDF links; there is no HTML article page.
+        "name": "IEEJ（日本エネルギー経済研究所）",
+        "url": "https://eneken.ieej.or.jp/press/",
+        "category": "IEEJ",
+        "path_prefixes": ("/press/",),
+        "required_terms": (),
+        "allowed_extensions": (".pdf",),
+    },
+    {
+        # Article links are extension-less (e.g. /press-release/<slug>), so
+        # the default allowed_extensions=(".html",) filter must be relaxed
+        # the same way it is for JERAクロス below.
+        "name": "ASEAN Centre for Energy（ACE）",
+        "url": "https://aseanenergy.org/press-release/",
+        "category": "国際動向",
+        "path_prefixes": ("/press-release/",),
+        "required_terms": (),
+        "allowed_extensions": ("",),
+    },
+    {
+        # Article links are extension-less (e.g. /news/<slug>,
+        # /commentaries/<slug>); see ACE note above.
+        "name": "IEA（国際エネルギー機関）",
+        "url": "https://www.iea.org/news",
+        "category": "国際動向",
+        "path_prefixes": ("/news/", "/commentaries/"),
+        "required_terms": (),
+        "allowed_extensions": ("",),
+    },
 )
 
 
@@ -146,6 +197,42 @@ UTILITY_RSS_SOURCES = (
         "name": "北海道電力 プレスリリース",
         "url": "https://www.hepco.co.jp/info/rss/press_rss.xml",
         "category": "事業者動向",
+    },
+)
+
+
+# Academic / research-institute sources. Unlike UTILITY_RSS_SOURCES, these are
+# NOT registered in category_classifier.LEGACY_FEED_CATEGORY_MAP: a single
+# institute publishes across many topics (CCS, batteries, renewables,
+# nuclear, ...), so its name is used only as a display badge (feeds.category)
+# and each article is still classified individually from its own content.
+RESEARCH_RSS_SOURCES = (
+    {
+        "name": "RITE（地球環境産業技術研究機構）",
+        "url": "https://www.rite.or.jp/atom.xml",
+        "category": "RITE",
+    },
+)
+
+
+# Overseas official/media sources covering North America, Europe, and
+# Southeast/Northeast Asia, added to give cross-cutting visibility into
+# international trends that domestic-only sources cannot surface. Unlike
+# RESEARCH_RSS_SOURCES, these ARE registered in
+# category_classifier.LEGACY_FEED_CATEGORY_MAP under "国際動向": what makes
+# an article valuable here is that it is overseas news, not its specific
+# energy topic, so every article from these sources is grouped under the
+# single "国際動向" category regardless of content.
+INTERNATIONAL_RSS_SOURCES = (
+    {
+        "name": "EIA（米国エネルギー情報局）",
+        "url": "https://www.eia.gov/rss/press_rss.xml",
+        "category": "国際動向",
+    },
+    {
+        "name": "欧州委員会 エネルギー総局（DG ENER）",
+        "url": "https://energy.ec.europa.eu/node/2/rss_en",
+        "category": "国際動向",
     },
 )
 

@@ -11,8 +11,10 @@ from exclusion_rules import DEFAULT_EXCLUDED_DOMAIN_NAMES, resolve_excluded_doma
 from jst_format import is_recent_article
 from policy_sources import (
     COMMITTEE_WATCH_SOURCES,
+    INTERNATIONAL_RSS_SOURCES,
     OFFICIAL_WATCH_SOURCES,
     POLICY_DESIGN_SOURCES,
+    RESEARCH_RSS_SOURCES,
     UTILITY_RSS_SOURCES,
 )
 
@@ -231,6 +233,42 @@ def init_db():
                 )
 
             for source in UTILITY_RSS_SOURCES:
+                cur.execute(
+                    """
+                    INSERT OR IGNORE INTO feeds
+                    (name, url, base_url, source_type, category, is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, 'rss', ?, 1, ?, ?)
+                    """,
+                    (source["name"], source["url"], source["url"], source["category"], now, now),
+                )
+                cur.execute(
+                    """
+                    UPDATE feeds
+                    SET name=?, base_url=?, source_type='rss', category=?, is_active=1, updated_at=?
+                    WHERE url=? AND source_type != 'rss'
+                    """,
+                    (source["name"], source["url"], source["category"], now, source["url"]),
+                )
+
+            for source in RESEARCH_RSS_SOURCES:
+                cur.execute(
+                    """
+                    INSERT OR IGNORE INTO feeds
+                    (name, url, base_url, source_type, category, is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, 'rss', ?, 1, ?, ?)
+                    """,
+                    (source["name"], source["url"], source["url"], source["category"], now, now),
+                )
+                cur.execute(
+                    """
+                    UPDATE feeds
+                    SET name=?, base_url=?, source_type='rss', category=?, is_active=1, updated_at=?
+                    WHERE url=? AND source_type != 'rss'
+                    """,
+                    (source["name"], source["url"], source["category"], now, source["url"]),
+                )
+
+            for source in INTERNATIONAL_RSS_SOURCES:
                 cur.execute(
                     """
                     INSERT OR IGNORE INTO feeds

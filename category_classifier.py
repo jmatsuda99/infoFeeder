@@ -49,6 +49,7 @@ LEGACY_FEED_CATEGORY_MAP = {
     "九電グループ": "事業者動向",
     "JERAグループ": "事業者動向",
     "事業者動向": "事業者動向",
+    "国際動向": "国際動向",
 }
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
