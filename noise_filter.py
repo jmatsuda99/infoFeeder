@@ -304,6 +304,85 @@ def _matches_noise_title_pattern(text):
     return any(pattern.search(text) for pattern in NOISE_TITLE_PATTERNS)
 
 
+# ESG-declaration-type noise: articles whose entire content is a company's
+# ESG-initiative announcement / certification-acquisition puff piece (e.g.
+# "SBT認定取得", "CDP評価A獲得", "「再エネ100宣言」に参加"), matched by a
+# specific certification/declaration term (e.g. id=1258760: "「再エネ100宣言」
+# 企業が業績好調、広がる事業成長と脱炭素の両立の可能性", reprinted verbatim
+# -- same 日刊工業新聞社アンケート -- as id=918372 on PR TIMES and id=1200155
+# on 日刊工業新聞, all three matched here via "再エネ100宣言"). These
+# previously survived STRONG_RETAIN_KEYWORDS because "再エネ"/"脱炭素" appear
+# as generic scene-setting vocabulary, not because the article describes any
+# actual electricity procurement or equipment.
+#
+# A broader pair of catch-all patterns keyed only on generic phrasing
+# ("業績好調.{0,20}(脱炭素|再エネ)", "(脱炭素|再エネ).{0,20}(両立|業績)",
+# without requiring any certification/declaration-specific term) was tried
+# and rejected: on the full corpus it matched 69 of 104 newly-noise articles
+# via that phrasing alone -- unrelated real-estate, agriculture, logistics,
+# EU-policy, and government-subsidy articles, and worse, genuine
+# electricity-industry articles that are supposed to be retained (e.g.
+# "北陸電力、発電効率高いLNG火力2号機稼働へ 安定供給と脱炭素両立" -- a
+# utility building new generation capacity, forced to noise only because its
+# headline uses the common "安定供給と脱炭素(の)両立" formula). "脱炭素/
+# 再エネ" co-occurring with "両立"/"業績" within 20 characters is simply the
+# standard Japanese energy-journalism headline template and is not specific
+# to ESG-declaration puff pieces, so it was dropped; the specific-term
+# patterns below already catch all 3 reported articles and produce 35 newly-
+# noise matches on the full corpus -- in line with James's ~30 estimate,
+# instead of the ~97 the broader pair produced.
+ESG_DECLARATION_NOISE_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"SBTi?認定",
+        r"CDP.{0,10}(評価|スコア)",
+        r"再エネ100宣言",
+        r"RE\s*Action",
+        r"RE100.{0,5}(宣言|加盟|参加)",
+    )
+)
+
+# Exception terms: if any of these co-occur in the same title + summary as an
+# ESG_DECLARATION_NOISE_PATTERNS hit, the article describes concrete
+# electricity procurement/equipment (a PPA, a kWh/MW figure, a solar/wind
+# installation, self-consumption, battery storage, ...) rather than a bare
+# announcement, so it is *not* forced to noise here -- it falls through to
+# the normal STRONG_RETAIN_KEYWORDS flow like any other article.
+ESG_DECLARATION_RETAIN_EXCEPTIONS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"PPA",
+        r"kWh",
+        r"MWh",
+        r"kW",
+        r"MW",
+        r"太陽光発電設備",
+        r"太陽光導入",
+        r"太陽光発電",
+        r"メガソーラー",
+        r"風力発電",
+        r"自家消費",
+        r"オフサイト",
+        # Real headlines use both orderings ("実質100%再エネ化" and "100%
+        # 実質再エネ化", e.g. 豊田通商's id=447308/499385 RE100 articles use
+        # the latter) and both a half-width "%" and a full-width "％" (as in
+        # id=499385's title "実質100％再エネ化へ") -- match any combination.
+        r"実質.{0,6}\d+\s*[%％]",
+        r"\d+\s*[%％].{0,6}実質",
+        r"蓄電池",
+        r"蓄電システム",
+    )
+)
+
+
+def _matches_esg_declaration_noise(text):
+    if not any(pattern.search(text) for pattern in ESG_DECLARATION_NOISE_PATTERNS):
+        return False
+    if any(pattern.search(text) for pattern in ESG_DECLARATION_RETAIN_EXCEPTIONS):
+        return False
+    return True
+
+
 def is_noise_article(title, summary, link, feed_url, feed_category):
     """Whether an article should be hidden from the default article list.
 
@@ -323,6 +402,15 @@ def is_noise_article(title, summary, link, feed_url, feed_category):
     4. Title + summary is checked against NOISE_TITLE_PATTERNS (market
        report boilerplate phrasing) -- always noise, regardless of
        STRONG_RETAIN_KEYWORDS / WEAK_RETAIN_KEYWORDS.
+    4b. Title + summary is checked against ESG_DECLARATION_NOISE_PATTERNS
+        (ESG-initiative-declaration / certification-acquisition puff pieces,
+        e.g. "SBT認定取得", "「再エネ100宣言」に参加", or a
+        business-performance angle built on one) -- noise, *unless* an
+        ESG_DECLARATION_RETAIN_EXCEPTIONS term (PPA, kWh/MW figures, solar/
+        wind/battery equipment, 自家消費, オフサイト, 実質N%, ...) co-occurs
+        in the same title + summary, in which case this check is skipped
+        and the article falls through to the normal STRONG_RETAIN_KEYWORDS
+        flow below.
     5. Otherwise, judged by keyword presence in title + summary (HTML tags
        stripped, plus any Google-highlighted <b> terms, and with
        "反原発"/"脱原発"/"反原子力"/"脱原子力" opposition-phrase wording
@@ -352,6 +440,9 @@ def is_noise_article(title, summary, link, feed_url, feed_category):
     stripped_combined = f"{_strip_html(title_text)} {_strip_html(summary_text)}"
 
     if _matches_noise_title_pattern(stripped_combined):
+        return True
+
+    if _matches_esg_declaration_noise(stripped_combined):
         return True
 
     bold_terms = extract_bold_terms(title_text) + extract_bold_terms(summary_text)
