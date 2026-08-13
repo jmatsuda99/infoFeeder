@@ -1,15 +1,21 @@
 """Article-level topic classification for the fixed 15-category taxonomy.
 
-Feed-level `feeds.category` is either empty (Google Alerts feeds) or just the
-media outlet name (industry-media feeds), so it cannot be shown to users as a
-meaningful topic. This module derives a per-article topic instead:
+Feed-level `feeds.category` is either empty (Google Alerts feeds), just the
+media outlet name (industry-media feeds), or a trustworthy curated-taxonomy
+value (policy/official-watch/committee/utility-RSS sources), so it cannot
+always be shown to users as-is. This module derives a per-article topic
+instead:
 
-- Curated official sources (policy_listing / official_watch / committee_json)
-  already carry a trustworthy feed-level category, so it is simply normalized
-  onto the new taxonomy.
-- Everything else (rss / html_listing, mostly Google Alerts) is classified
-  from the `<b>...</b>` terms Google highlights in the title/summary, which
-  mark the keyword that matched the alert.
+- Whenever `feeds.category` is itself one of the known curated taxonomy
+  values (see `LEGACY_FEED_CATEGORY_MAP`), it is simply normalized onto the
+  new taxonomy, regardless of which `source_type` produced the feed. This
+  covers policy_listing / official_watch / committee_json sources as well as
+  the utility press-release RSS feeds (source_type='rss') that are seeded
+  with a curated category.
+- Everything else (empty category from Google Alerts, or a media outlet name
+  from industry-media feeds) is classified from the `<b>...</b>` terms Google
+  highlights in the title/summary, which mark the keyword that matched the
+  alert.
 """
 
 import re
@@ -42,9 +48,8 @@ LEGACY_FEED_CATEGORY_MAP = {
     "電力市場": "電力市場",
     "九電グループ": "事業者動向",
     "JERAグループ": "事業者動向",
+    "事業者動向": "事業者動向",
 }
-
-_CURATED_SOURCE_TYPES = {"policy_listing", "official_watch", "committee_json"}
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
@@ -103,9 +108,16 @@ def _score_terms(terms, weight, scores):
 
 
 def classify_article(title, summary, feed_category, source_type):
-    """Classify a single article into the new 15-category taxonomy."""
-    if source_type in _CURATED_SOURCE_TYPES:
-        return LEGACY_FEED_CATEGORY_MAP.get(feed_category, OTHER_CATEGORY)
+    """Classify a single article into the new 15-category taxonomy.
+
+    `source_type` is accepted for backward compatibility with callers but is
+    no longer used to decide the classification strategy: whether the
+    curated `feed_category` normalization applies is now determined solely
+    by whether `feed_category` is a recognized key in
+    `LEGACY_FEED_CATEGORY_MAP`, independent of the feed's `source_type`.
+    """
+    if feed_category and feed_category in LEGACY_FEED_CATEGORY_MAP:
+        return LEGACY_FEED_CATEGORY_MAP[feed_category]
 
     title_text = title or ""
     summary_text = summary or ""

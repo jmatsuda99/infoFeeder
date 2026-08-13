@@ -9,7 +9,12 @@ from article_utils import article_key, merge_group_key, title_merge_key
 from category_classifier import classify_article
 from exclusion_rules import DEFAULT_EXCLUDED_DOMAIN_NAMES, resolve_excluded_domain_keywords
 from jst_format import is_recent_article
-from policy_sources import COMMITTEE_WATCH_SOURCES, OFFICIAL_WATCH_SOURCES, POLICY_DESIGN_SOURCES
+from policy_sources import (
+    COMMITTEE_WATCH_SOURCES,
+    OFFICIAL_WATCH_SOURCES,
+    POLICY_DESIGN_SOURCES,
+    UTILITY_RSS_SOURCES,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -221,6 +226,24 @@ def init_db():
                     UPDATE feeds
                     SET name=?, base_url=?, source_type='official_watch', category=?, is_active=1, updated_at=?
                     WHERE url=? AND source_type != 'official_watch'
+                    """,
+                    (source["name"], source["url"], source["category"], now, source["url"]),
+                )
+
+            for source in UTILITY_RSS_SOURCES:
+                cur.execute(
+                    """
+                    INSERT OR IGNORE INTO feeds
+                    (name, url, base_url, source_type, category, is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, 'rss', ?, 1, ?, ?)
+                    """,
+                    (source["name"], source["url"], source["url"], source["category"], now, now),
+                )
+                cur.execute(
+                    """
+                    UPDATE feeds
+                    SET name=?, base_url=?, source_type='rss', category=?, is_active=1, updated_at=?
+                    WHERE url=? AND source_type != 'rss'
                     """,
                     (source["name"], source["url"], source["category"], now, source["url"]),
                 )

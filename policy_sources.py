@@ -109,6 +109,44 @@ OFFICIAL_WATCH_SOURCES = (
         "required_terms": (),
         "allowed_extensions": ("",),
     },
+    {
+        "name": "東京電力ホールディングス 公式発表",
+        "url": "https://www.tepco.co.jp/press/index-j.html",
+        "category": "事業者動向",
+        "path_prefixes": (
+            "/press/release/2026/",
+            "/press/news/2026/",
+            "/pg/company/press-information/press/2026/",
+            "/rp/about/company/press-information/press/2026/",
+            "/ep/notice/pressrelease/2026/",
+        ),
+        "required_terms": (),
+        "allowed_extensions": (".pdf",),
+    },
+)
+
+
+UTILITY_RSS_SOURCES = (
+    {
+        "name": "関西電力 プレスリリース",
+        "url": "https://www.kepco.co.jp/corporate/pr/pressre.xml",
+        "category": "事業者動向",
+    },
+    {
+        "name": "中部電力 プレスリリース",
+        "url": "https://www.chuden.co.jp/rss/press.xml",
+        "category": "事業者動向",
+    },
+    {
+        "name": "東北電力 プレスリリース",
+        "url": "https://www.tohoku-epco.co.jp/rss/index.xml",
+        "category": "事業者動向",
+    },
+    {
+        "name": "北海道電力 プレスリリース",
+        "url": "https://www.hepco.co.jp/info/rss/press_rss.xml",
+        "category": "事業者動向",
+    },
 )
 
 
