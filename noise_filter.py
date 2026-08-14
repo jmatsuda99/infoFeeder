@@ -191,8 +191,13 @@ _STRONG_RETAIN_KEYWORDS_LOWER = tuple(keyword.lower() for keyword in STRONG_RETA
 # Generation-technology categories (再生可能エネルギー, 脱炭素・カーボン
 # ニュートラル, 水素・アンモニア, 火力・化石燃料, 原子力, EV・モビリティ,
 # データセンター・AI電力, 国際動向, ...) are explicitly OUT of scope for this
-# change and must keep using the existing STRONG_RETAIN_KEYWORDS-only logic
-# unchanged.
+# stage-1 change and must keep using the existing STRONG_RETAIN_KEYWORDS-only
+# logic unchanged. (脱炭素・カーボンニュートラル was brought into scope by a
+# later stage-2 change -- see POWER_GENERATION_ANCHOR_KEYWORDS /
+# POWER_GENERATION_ANCHOR_SCOPE_CATEGORIES below, which use a broader
+# generation-technology-aware anchor set rather than SYSTEM_ANCHOR_KEYWORDS.
+# The other generation-technology categories listed above remain out of
+# scope and unchanged.)
 SYSTEM_ANCHOR_KEYWORDS = frozenset(
     {
         # 蓄電
@@ -260,6 +265,87 @@ def _contains_system_anchor_keyword(text):
     text_lower = text.lower()
     return any(keyword in text_lower for keyword in _SYSTEM_ANCHOR_KEYWORDS_LOWER)
 
+
+# --- Stage-2 rollout: 脱炭素・カーボンニュートラル -------------------------
+#
+# 脱炭素・カーボンニュートラル (4,750 articles) is next in the staged
+# rollout. James's investigation found that the narrow SYSTEM_ANCHOR_KEYWORDS
+# set above (storage/trading/supply-demand/grid/tariff/utility-name terms
+# only) makes 90.0% of this category noise-candidates -- too strict, because
+# this category is fundamentally about *generation* technology (solar,
+# wind, nuclear, hydrogen power, PPAs, ...), which SYSTEM_ANCHOR_KEYWORDS
+# does not cover at all. A broadened anchor set that adds
+# generation/power-source vocabulary relaxes this to 71.9%, which is the
+# basis for POWER_GENERATION_ANCHOR_KEYWORDS below.
+#
+# Two precision problems were found and fixed before rollout:
+# - A bare "電気"/"電力" was in the first draft of the broadened list. Both
+#   are common substrings of unrelated compounds (most notably "電気自動車"
+#   / EV), so keeping them as standalone anchor terms let EV articles with
+#   no actual generation/power-source content survive via a substring match
+#   on "電気自動車". They are intentionally *not* included here (or anywhere
+#   in this set) -- see the id=296/342/364 verification in the noise_filter
+#   test/verification notes.
+# - "太陽電池" (solar cell/panel manufacturing, e.g. perovskite solar cell
+#   articles like id=284) was missing from the draft list entirely, which
+#   incorrectly sent genuine solar-cell-industry articles to noise. Added
+#   here along with "太陽光パネル".
+POWER_GENERATION_ANCHOR_KEYWORDS = SYSTEM_ANCHOR_KEYWORDS | frozenset(
+    {
+        # 発電・電源（「電気」「電力」の単独語は意図的に含めない -- 上記参照）
+        "発電",
+        "電源",
+        "電源構成",
+        "送電",
+        "配電",
+        # 太陽光・風力
+        "太陽光発電",
+        "太陽光発電所",
+        "風力発電",
+        "風力発電所",
+        "メガソーラー",
+        "洋上風力",
+        # 太陽電池（Jamesが指摘した欠落分）
+        "太陽電池",
+        "太陽光パネル",
+        # 原子力・火力・水素
+        "原子力発電",
+        "原発",
+        "火力発電",
+        "水素発電",
+        "燃料電池発電",
+        # PPA・自家消費
+        "PPA",
+        "自家消費",
+        "オフサイトPPA",
+        "コーポレートPPA",
+        # 電力事業者（一般名詞）
+        "電力会社",
+        "電力事業者",
+        "発電事業者",
+        # 単位
+        "kWh",
+        "kW",
+        "MWh",
+        "MW",
+    }
+)
+
+_POWER_GENERATION_ANCHOR_KEYWORDS_LOWER = tuple(
+    keyword.lower() for keyword in POWER_GENERATION_ANCHOR_KEYWORDS
+)
+
+# topic_category values that the stage-2 (power-generation) anchor-word
+# requirement applies to. Disjoint from SYSTEM_ANCHOR_SCOPE_CATEGORIES: a
+# topic_category is never in both sets, so is_noise_article applies at most
+# one of the two anchor checks.
+POWER_GENERATION_ANCHOR_SCOPE_CATEGORIES = frozenset({"脱炭素・カーボンニュートラル"})
+
+
+def _contains_power_generation_anchor_keyword(text):
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in _POWER_GENERATION_ANCHOR_KEYWORDS_LOWER)
+
 # "反原発"/"脱原発"/"反原子力"/"脱原子力" are political/social-movement
 # phrasing that can appear in articles with nothing to do with the
 # electricity situation itself (e.g. id=1250746: a company-law-reform
@@ -299,6 +385,7 @@ NOISE_DOMAIN_BLOCKLIST = frozenset(
         "simplywall.st",
         "moomoo.com",
         "jp.investing.com",
+        "ebc.com",
     }
 )
 
@@ -514,11 +601,25 @@ def is_noise_article(title, summary, link, feed_url, feed_category, topic_catego
         does not, the article is noise -- *regardless* of any
         STRONG_RETAIN_KEYWORDS hit -- because this stage's stricter
         criterion overrides the legacy keyword match for these three
-        categories. Every other topic_category (including "" and the
+        categories.
+    4d. Stage-2 "power generation" anchor check (see
+        POWER_GENERATION_ANCHOR_KEYWORDS / POWER_GENERATION_ANCHOR_SCOPE_CATEGORIES):
+        only when `topic_category` is 脱炭素・カーボンニュートラル, the
+        article is required to contain at least one
+        POWER_GENERATION_ANCHOR_KEYWORDS term (everything in
+        SYSTEM_ANCHOR_KEYWORDS, plus generation/power-source terms such as
+        発電, 太陽光発電, 太陽電池, 原子力発電, PPA, 電力会社, kWh, ...) in
+        title + summary. Same all-or-nothing behavior as 4c: if absent, the
+        article is noise regardless of STRONG_RETAIN_KEYWORDS. A bare
+        "電気"/"電力" is deliberately excluded from this anchor set (it is a
+        substring of "電気自動車" and other EV vocabulary, and was found to
+        cause EV articles with no real generation content to survive via a
+        false substring match).
+        Every other topic_category (including "" and the remaining
         generation-technology categories such as 再生可能エネルギー,
-        脱炭素・カーボンニュートラル, 水素・アンモニア, 火力・化石燃料,
-        原子力, EV・モビリティ, データセンター・AI電力, 国際動向, その他)
-        skips this check entirely and falls through to step 5 unchanged.
+        水素・アンモニア, 火力・化石燃料, 原子力, EV・モビリティ,
+        データセンター・AI電力, 国際動向, その他) skips both 4c and 4d and
+        falls through to step 5 unchanged.
     5. Otherwise, judged by keyword presence in title + summary (HTML tags
        stripped, plus any Google-highlighted <b> terms, and with
        "反原発"/"脱原発"/"反原子力"/"脱原子力" opposition-phrase wording
@@ -568,6 +669,17 @@ def is_noise_article(title, summary, link, feed_url, feed_category, topic_catego
     # every generation-technology category) are untouched by this change.
     if topic_category in SYSTEM_ANCHOR_SCOPE_CATEGORIES and not _contains_system_anchor_keyword(
         combined
+    ):
+        return True
+
+    # Stage-2 rollout: 脱炭素・カーボンニュートラル uses the broader
+    # power-generation anchor set instead of SYSTEM_ANCHOR_KEYWORDS (see
+    # POWER_GENERATION_ANCHOR_KEYWORDS). Disjoint from
+    # SYSTEM_ANCHOR_SCOPE_CATEGORIES, so at most one of these two anchor
+    # checks applies to a given topic_category.
+    if (
+        topic_category in POWER_GENERATION_ANCHOR_SCOPE_CATEGORIES
+        and not _contains_power_generation_anchor_keyword(combined)
     ):
         return True
 
