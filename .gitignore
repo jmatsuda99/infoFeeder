@@ -15,3 +15,6 @@ webapp_stderr.log
 
 # Machine-specific shortcuts (regenerate with scripts\create_infofeeder_shortcut.ps1)
 *.lnk
+
+# Locally installed Claude Code skills (not part of the project)
+.agents/
