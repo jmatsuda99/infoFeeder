@@ -24,8 +24,8 @@ def _fill_missing_keys(df):
     return df
 
 
-def prepare_article_dataframe(keyword, category=""):
-    df = list_articles(keyword, category)
+def prepare_article_dataframe(keyword, category="", rescue_filter="all"):
+    df = list_articles(keyword, category, rescue_filter)
     if df.empty:
         return df
 
@@ -71,6 +71,8 @@ def build_article_groups(df):
                 "generated_at": representative.get("generated_at", "") or "",
                 "is_read": bool(sorted_group["is_read"].any()),
                 "is_saved": bool(sorted_group["is_saved"].any()),
+                "is_rescue": bool(representative["is_rescue"]),
+                "rescue_override": bool(representative.get("rescue_override", 0)),
                 "saved_at": representative.get("saved_at", "") or "",
                 "group_count": int(len(sorted_group)),
                 "related_articles": [
@@ -89,8 +91,8 @@ def build_article_groups(df):
     return groups
 
 
-def get_article_groups(keyword="", category="", read_filter="all", saved_filter="all", sort_order="newest", limit=50):
-    df = prepare_article_dataframe(keyword, category)
+def get_article_groups(keyword="", category="", rescue_filter="all", read_filter="all", saved_filter="all", sort_order="newest", limit=50):
+    df = prepare_article_dataframe(keyword, category, rescue_filter)
     groups = build_article_groups(df)
 
     if read_filter == "unread":
