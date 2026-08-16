@@ -121,6 +121,20 @@ _EXTRA_RETAIN_KEYWORDS = (
     "北陸電力",
     "沖縄電力",
     "JERA",
+    # 電力事業者名の略称。SYSTEM_ANCHOR_KEYWORDS側のコメント参照 -- 「中電」は
+    # 中部電力/中国電力と紛らわしい上、「中電圧」等の無関係な語に部分一致
+    # してしまうため意図的に含めない。
+    "東電",
+    "関電",
+    "九電",
+    "東北電",
+    # 規制機関・委員会のフルネーム。SYSTEM_ANCHOR_KEYWORDS側のコメント参照。
+    "電力・ガス取引監視等委員会",
+    "電力・ガス基本政策小委員会",
+    "制度設計・監視専門会合",
+    "制度設計専門会合",
+    "監視専門会合",
+    "取引監視等委員会",
 )
 
 _ALL_RETAIN_KEYWORD_CANDIDATES = frozenset(KEYWORD_CATEGORY_MAP.keys()) | frozenset(
@@ -249,6 +263,34 @@ SYSTEM_ANCHOR_KEYWORDS = frozenset(
         "北陸電力",
         "沖縄電力",
         "JERA",
+        # 電力事業者名の略称（Jamesの調査で「東電PG」等の略称が正式名称に
+        # 一致せず見落とされていたケースが見つかった分のみ追加。「中電」は
+        # 中部電力/中国電力どちらの略称としても使われ紛らわしいのに加え、
+        # 「低・中電圧」「中電圧」のような無関係な電圧区分の市場調査スパム
+        # 記事にも部分一致してしまう（例: id=761「低・中電圧インバータ
+        # 市場」）ため、意図的に含めない。
+        "東電",
+        "関電",
+        "九電",
+        "東北電",
+        # 規制機関・委員会のフルネーム（policy_sources.py registered names）。
+        # SYSTEM_ANCHOR_KEYWORDSの既存語（例: "電力取引"）はタイトル中で
+        # 中黒（・）等で区切られると連続部分文字列にならず一致しない
+        # （例: "電力・ガス取引監視等委員会" は "電力" + "・ガス" + "取引" と
+        # なり "電力取引" を連続部分文字列として含まない）ため、フルネームを
+        # 明示的に登録する。
+        "電力・ガス取引監視等委員会",
+        "電力・ガス基本政策小委員会",
+        "制度設計・監視専門会合",
+        "制度設計専門会合",
+        # 上記フルネームも、Google Alertsの<b>強調タグ</b>が中黒の前後で
+        # 語を分断すると（例:
+        # "<b>電力</b>・<b>ガス取引監視等委員会</b>"）、HTMLタグをスペースに
+        # 置換した後の文字列では中黒の前後にスペースが入り、フルネームの
+        # 連続部分文字列一致が壊れる（id=757707/1051537で確認）。強調タグの
+        # 分断点をまたがない、より短く特定性の高い部分語も別途登録する。
+        "監視専門会合",
+        "取引監視等委員会",
     }
 )
 
@@ -336,15 +378,103 @@ _POWER_GENERATION_ANCHOR_KEYWORDS_LOWER = tuple(
 )
 
 # topic_category values that the stage-2 (power-generation) anchor-word
-# requirement applies to. Disjoint from SYSTEM_ANCHOR_SCOPE_CATEGORIES: a
-# topic_category is never in both sets, so is_noise_article applies at most
-# one of the two anchor checks.
-POWER_GENERATION_ANCHOR_SCOPE_CATEGORIES = frozenset({"脱炭素・カーボンニュートラル"})
+# requirement applies to.
+#
+# *** Stage-2 rollback (post-launch review, 303-article false-noise audit) ***
+# Left empty deliberately: James's audit of the 1,503 user-saved articles
+# found 131 (43.2% of the 303 false-noise cases) were legitimate
+# 脱炭素・カーボンニュートラル articles -- municipal decarbonization-plan
+# announcements (e.g. "京葉臨海コンビナートGX推進会議", "川崎市脱炭素経営
+# 支援コンソーシアム"), corporate CDP/SBT declarations, emissions-trading
+# scheme coverage -- that this anchor requirement wrongly forced to noise,
+# because "脱炭素そのものが主題" articles legitimately have no
+# generation-technology vocabulary (発電/太陽光発電/PPA/...) anywhere in
+# their title+summary. The stage-2 anchor conflated "is this article about
+# decarbonization" with "is this article about power generation specifically",
+# which are not the same question for this category.
+#
+# The anchor check is disabled by leaving this scope set empty rather than
+# deleting POWER_GENERATION_ANCHOR_KEYWORDS/_contains_power_generation_anchor_keyword
+# outright: the keyword set is still used below as the retain-exception list
+# for UNRELATED_INDUSTRY_NOISE_PATTERNS, and is kept as documentation of what
+# was tried. The one concrete false positive that originally motivated
+# stage-2 (id=1263616: "高炉３社の設備投資／26年度は35%増…脱炭素に重点", a
+# steel-industry capex article that mentions "脱炭素" only in passing) is
+# now caught by UNRELATED_INDUSTRY_NOISE_PATTERNS instead, which targets
+# exactly that pattern -- unrelated-industry capex/earnings news with an
+# incidental decarbonization mention -- without collaterally noising every
+# article whose actual subject is decarbonization policy itself.
+POWER_GENERATION_ANCHOR_SCOPE_CATEGORIES = frozenset()
 
 
 def _contains_power_generation_anchor_keyword(text):
     text_lower = text.lower()
     return any(keyword in text_lower for keyword in _POWER_GENERATION_ANCHOR_KEYWORDS_LOWER)
+
+
+# Unrelated-industry noise: an article whose real subject is another
+# industry's capex/earnings news (steel, chemicals, autos, ...), with
+# "脱炭素"/"カーボンニュートラル" appearing only as an incidental descriptor
+# of that investment -- e.g. id=1263616: "高炉３社の設備投資／26年度は35%増、
+# ２兆円規模…高付加価値化・脱炭素に重点" (three blast-furnace makers' capex
+# plans, industry newspaper 鉄鋼新聞). These pass the plain
+# STRONG_RETAIN_KEYWORDS check via a bare "脱炭素"/"カーボンニュートラル"
+# mention, which is otherwise correct evidence for genuine decarbonization
+# articles (see the stage-2 rollback above) -- so this check, like
+# ESG_DECLARATION_NOISE_PATTERNS, overrides STRONG_RETAIN_KEYWORDS rather
+# than gating it.
+#
+# Both a finance/investment term AND an other-industry term must co-occur:
+# neither alone is specific enough (a financial term alone is common in
+# routine utility-company disclosures; an industry term alone can appear in
+# an electricity-sector article that merely mentions a customer's sector,
+# e.g. an EV-battery supply deal with an automaker). Requiring both mirrors
+# how id=1263616 actually reads, and empirically produces no false positives
+# among the 131 legitimate stage-2 false-noise articles (they are municipal
+# GX-plan/CDP/emissions-trading coverage, not another industry's capex news).
+#
+# POWER_GENERATION_ANCHOR_KEYWORDS (reused as the retain-exception set) still
+# overrides this check, so an article that is genuinely about a utility or
+# generation asset -- even one with unrelated-industry capex phrasing nearby
+# -- is not caught here (e.g. a utility named in STRONG_RETAIN_KEYWORDS, or
+# an actual 発電/太陽光発電/PPA/kWh mention). This is the same design lesson
+# as the rejected broad "業績好調+脱炭素" pattern that previously
+# misclassified 北陸電力's new LNG-plant article (see
+# ESG_DECLARATION_NOISE_PATTERNS's comment) -- keep the industry-term list
+# narrow and specific, not a generic "good financial results" phrase.
+UNRELATED_INDUSTRY_FINANCE_TERMS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"設備投資",
+        r"増収",
+        r"増益",
+        r"決算",
+        r"兆円",
+        r"億円",
+    )
+)
+
+UNRELATED_INDUSTRY_TERMS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"鉄鋼",
+        r"製鉄",
+        r"高炉",
+        r"化学メーカー",
+        r"自動車メーカー",
+    )
+)
+
+
+def _matches_unrelated_industry_noise(text):
+    if not any(pattern.search(text) for pattern in UNRELATED_INDUSTRY_FINANCE_TERMS):
+        return False
+    if not any(pattern.search(text) for pattern in UNRELATED_INDUSTRY_TERMS):
+        return False
+    if _contains_power_generation_anchor_keyword(text):
+        return False
+    return True
+
 
 # "反原発"/"脱原発"/"反原子力"/"脱原子力" are political/social-movement
 # phrasing that can appear in articles with nothing to do with the
@@ -368,6 +498,15 @@ def _strip_opposition_phrases(text):
 # component-market CAGR/size template ad, or stock-price/earnings-outlook
 # investor commentary that has nothing to do with the electricity situation
 # itself. A domain match here overrides STRONG_RETAIN_KEYWORDS entirely.
+#
+# finance.biggo.jp was removed from this list (303-article false-noise
+# audit): despite reading like an individual-stock commentary site, it turns
+# out to be a grid-scale-battery/ESS industry news outlet -- TDnet
+# same-day-disclosure digests and primary reporting on storage-battery deals
+# (e.g. RSTechnologies' 400MWh storage investment, Sunwoda's "esGrid 3.0").
+# Corpus-wide, 262 of its 266 articles carry a genuine STRONG_RETAIN_KEYWORDS
+# hit (蓄電池/系統/etc.), so it is judged by the normal keyword flow below
+# like any other domain instead of being blocked outright.
 NOISE_DOMAIN_BLOCKLIST = frozenset(
     {
         "pando.life",
@@ -381,7 +520,6 @@ NOISE_DOMAIN_BLOCKLIST = frozenset(
         "reportocean.co.jp",
         "gii.co.jp",
         "businessresearchinsights.com",
-        "finance.biggo.jp",
         "simplywall.st",
         "moomoo.com",
         "jp.investing.com",
@@ -425,6 +563,31 @@ NOISE_TITLE_PATTERNS = tuple(
         r"年平均成長率",
     )
 )
+
+# REVOKED (2026-08-16, post-Charlotte-review regression): a prior revision
+# introduced MARKET_REPORT_RETAIN_EXCEPTIONS here -- a 蓄電池/系統/送配電/
+# named-utility term list that, when co-occurring with a NOISE_TITLE_PATTERNS
+# hit, skipped the noise verdict on the theory that it rescued substantive
+# battery/grid-industry reporting (e.g. id=1069606) from the generic
+# CAGR/market-size template filter.
+#
+# That premise was wrong. A full-corpus audit (diffing is_noise_article()
+# with vs without the exception across all 13,928 items) found exactly 120
+# articles whose verdict flipped from noise to retained because of it, and
+# every single one of them -- including id=1069606 itself, the article the
+# exception was originally written to save -- is a CAGR/market-size
+# boilerplate ad from a market-research syndicator (atpress.ne.jp,
+# newscast.jp, dreamnews.jp, note.com/qy_research, ...). id=1069606's own
+# summary reads "市場は2035年に751億7000万米ドルへ達し、年平均成長率は
+# 12.02%と見込む" -- textbook CAGR-report phrasing, not substantive
+# reporting. In the battery/grid space specifically, 蓄電池/系統/送配電 are
+# simply the product-category vocabulary that this exact spam template is
+# built around ("鉛蓄電池の日本市場（2026年～2034年）、市場規模…CAGR…"), so
+# the exception did not carve out a narrow legitimate subset -- it punched a
+# hole that let the majority of this spam family back in. No article in the
+# full-corpus audit needed this exception for a legitimate reason, so it is
+# removed outright rather than narrowed; NOISE_TITLE_PATTERNS matches are
+# noise unconditionally again, as they were before this exception existed.
 
 
 def _strip_html(text):
@@ -604,22 +767,26 @@ def is_noise_article(title, summary, link, feed_url, feed_category, topic_catego
         categories.
     4d. Stage-2 "power generation" anchor check (see
         POWER_GENERATION_ANCHOR_KEYWORDS / POWER_GENERATION_ANCHOR_SCOPE_CATEGORIES):
-        only when `topic_category` is 脱炭素・カーボンニュートラル, the
-        article is required to contain at least one
-        POWER_GENERATION_ANCHOR_KEYWORDS term (everything in
-        SYSTEM_ANCHOR_KEYWORDS, plus generation/power-source terms such as
-        発電, 太陽光発電, 太陽電池, 原子力発電, PPA, 電力会社, kWh, ...) in
-        title + summary. Same all-or-nothing behavior as 4c: if absent, the
-        article is noise regardless of STRONG_RETAIN_KEYWORDS. A bare
-        "電気"/"電力" is deliberately excluded from this anchor set (it is a
-        substring of "電気自動車" and other EV vocabulary, and was found to
-        cause EV articles with no real generation content to survive via a
-        false substring match).
+        POWER_GENERATION_ANCHOR_SCOPE_CATEGORIES is now empty (rolled back --
+        see its docstring), so this check never fires for any
+        topic_category; every article falls through to 4e. The keyword set
+        and matching function are kept because they are reused as the
+        retain-exception list in 4e.
+    4e. Unrelated-industry noise check (see UNRELATED_INDUSTRY_NOISE_PATTERNS
+        / UNRELATED_INDUSTRY_FINANCE_TERMS / UNRELATED_INDUSTRY_TERMS): if
+        title + summary contains both a finance/investment term (設備投資,
+        増収, 増益, 決算, 兆円, 億円) and an other-industry term (鉄鋼, 製鉄,
+        高炉, 化学メーカー, 自動車メーカー) with no POWER_GENERATION_ANCHOR_KEYWORDS
+        term present, the article is noise regardless of
+        STRONG_RETAIN_KEYWORDS -- this is what replaced stage-2 as the
+        specific fix for id=1263616 ("高炉３社の設備投資／26年度は35%増…脱炭素
+        に重点"), an unrelated industry's capex news that only mentions
+        "脱炭素" in passing.
         Every other topic_category (including "" and the remaining
         generation-technology categories such as 再生可能エネルギー,
         水素・アンモニア, 火力・化石燃料, 原子力, EV・モビリティ,
-        データセンター・AI電力, 国際動向, その他) skips both 4c and 4d and
-        falls through to step 5 unchanged.
+        データセンター・AI電力, 国際動向, その他) skips 4c and 4d and reaches
+        4e unconditionally.
     5. Otherwise, judged by keyword presence in title + summary (HTML tags
        stripped, plus any Google-highlighted <b> terms, and with
        "反原発"/"脱原発"/"反原子力"/"脱原子力" opposition-phrase wording
@@ -681,6 +848,14 @@ def is_noise_article(title, summary, link, feed_url, feed_category, topic_catego
         topic_category in POWER_GENERATION_ANCHOR_SCOPE_CATEGORIES
         and not _contains_power_generation_anchor_keyword(combined)
     ):
+        return True
+
+    # Unrelated-industry noise (see UNRELATED_INDUSTRY_NOISE_PATTERNS above):
+    # a co-occurring finance/investment term + other-industry term, with no
+    # power-generation anchor term present, overrides STRONG_RETAIN_KEYWORDS
+    # the same way ESG_DECLARATION_NOISE_PATTERNS does above -- this is what
+    # now catches id=1263616 in place of the retired stage-2 anchor check.
+    if _matches_unrelated_industry_noise(combined):
         return True
 
     # Strip "反原発"/"脱原発"/"反原子力"/"脱原子力" before the
