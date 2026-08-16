@@ -18,6 +18,9 @@
                 {% if group.group_count > 1 %}
                 <span class="badge badge-muted">Grouped {{ group.group_count }}</span>
                 {% endif %}
+                {% if group.is_rescue %}
+                <span class="badge badge-muted" title="保存される可能性が低いと推定された記事です">低優先度</span>
+                {% endif %}
             </div>
             <div
                 id="save-indicator-{{ group.id }}"

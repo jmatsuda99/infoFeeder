@@ -139,6 +139,7 @@
                 <input type="hidden" name="read_filter" value="{{ read_filter }}">
                 <input type="hidden" name="saved_filter" value="{{ saved_filter }}">
                 <input type="hidden" name="category_filter" value="{{ category_filter }}">
+                <input type="hidden" name="rescue_filter" value="{{ rescue_filter }}">
                 <input type="hidden" name="sort_order" value="{{ sort_order }}">
                 <input type="hidden" name="limit" value="{{ limit }}">
                 <button type="submit">Fetch articles now</button>
@@ -173,6 +174,11 @@
                     {% for c in category_options %}
                     <option value="{{ c }}" {% if category_filter == c %}selected{% endif %}>{{ c }}</option>
                     {% endfor %}
+                </select>
+                <select name="rescue_filter">
+                    <option value="all" {% if rescue_filter == "all" %}selected{% endif %}>すべて表示</option>
+                    <option value="hide_rescue" {% if rescue_filter == "hide_rescue" %}selected{% endif %}>低優先度を除外</option>
+                    <option value="rescue_only" {% if rescue_filter == "rescue_only" %}selected{% endif %}>低優先度のみ表示</option>
                 </select>
                 <select name="sort_order">
                     <option value="newest" {% if sort_order == "newest" %}selected{% endif %}>Newest</option>

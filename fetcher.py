@@ -16,6 +16,7 @@ from db import get_conn, get_excluded_domain_keywords, set_app_state
 from exclusion_rules import is_excluded_domain_url_by_keywords
 from noise_filter import is_noise_article
 from policy_sources import get_committee_watch_source, get_official_watch_source, get_policy_design_source
+from rescue_classifier import compute_rescue_score
 from translation import translate_title_summary
 TRACKING_QUERY_KEYS = {
     "utm_source",
@@ -422,7 +423,9 @@ def insert_feed_rows(
         is_noise = 1 if is_noise_article(
             title, summary, link, feed_url, feed_category, topic_category=topic_category
         ) else 0
-        prepared.append((title, link, published, summary, ak, tk, topic_category, is_noise))
+        rescue_score, is_rescue_bool = compute_rescue_score(title, summary, topic_category)
+        is_rescue = 1 if is_rescue_bool else 0
+        prepared.append((title, link, published, summary, ak, tk, topic_category, is_noise, rescue_score, is_rescue))
         keys_for_prefetch.append(ak)
 
     if not prepared:
@@ -431,15 +434,15 @@ def insert_feed_rows(
     read_by_key = {} if force_unread else prefetch_read_status(cur, keys_for_prefetch)
     inserted = 0
     fetched_at = datetime.now().isoformat(timespec="seconds")
-    for title, link, published, summary, ak, tk, topic_category, is_noise in prepared:
+    for title, link, published, summary, ak, tk, topic_category, is_noise, rescue_score, is_rescue in prepared:
         if skip_existing_links and cur.execute("SELECT 1 FROM items WHERE link=? LIMIT 1", (link,)).fetchone():
             continue
         existing_read = read_by_key.get(ak, 0)
         cur.execute(
             """
             INSERT OR IGNORE INTO items
-            (feed_id,title,link,article_key,title_key,published,summary,topic_category,is_noise,is_read,fetched_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            (feed_id,title,link,article_key,title_key,published,summary,topic_category,is_noise,rescue_score,is_rescue,is_read,fetched_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 feed_id,
@@ -451,6 +454,8 @@ def insert_feed_rows(
                 summary,
                 topic_category,
                 is_noise,
+                rescue_score,
+                is_rescue,
                 existing_read,
                 fetched_at,
             ),

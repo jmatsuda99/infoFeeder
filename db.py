@@ -10,6 +10,7 @@ from category_classifier import classify_article
 from exclusion_rules import DEFAULT_EXCLUDED_DOMAIN_NAMES, resolve_excluded_domain_keywords
 from jst_format import is_recent_article
 from noise_filter import is_noise_article
+from rescue_classifier import compute_rescue_score
 from policy_sources import (
     COMMITTEE_WATCH_SOURCES,
     INTERNATIONAL_RSS_SOURCES,
@@ -192,12 +193,39 @@ def init_db():
                 cur.execute("ALTER TABLE items ADD COLUMN topic_category TEXT")
             if "is_noise" not in item_columns:
                 cur.execute("ALTER TABLE items ADD COLUMN is_noise INTEGER DEFAULT 0")
+            if "rescue_score" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN rescue_score REAL")
+            if "is_rescue" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN is_rescue INTEGER DEFAULT 0")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_article_key ON items(article_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_title_key ON items(title_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_published ON items(published)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_feed_id ON items(feed_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_is_noise ON items(is_noise)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_topic_category ON items(topic_category)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_items_is_rescue ON items(is_rescue)")
+
+            # RESCUE model tables: structure only. The contents (per-category
+            # priors/thresholds and per-term weights) are computed and
+            # written exclusively by the independent train_rescue_model.py
+            # script -- see its docstring and rescue_classifier.py's for why
+            # this heavy training pass is never run automatically here.
+            cur.execute("""CREATE TABLE IF NOT EXISTS rescue_category_priors(
+                topic_category TEXT PRIMARY KEY,
+                prior REAL,
+                threshold REAL,
+                eligible INTEGER DEFAULT 0,
+                saved_count INTEGER,
+                article_count INTEGER,
+                leak_rate REAL,
+                updated_at TEXT
+            )""")
+            cur.execute("""CREATE TABLE IF NOT EXISTS rescue_weights(
+                topic_category TEXT,
+                term TEXT,
+                weight REAL,
+                PRIMARY KEY (topic_category, term)
+            )""")
 
             rows_to_refresh = cur.execute("""
                 SELECT id, title, link, article_key, title_key
@@ -324,13 +352,29 @@ def init_db():
                     (source["name"], source["url"], source["site_url"], source["category"], now, now),
                 )
 
-            # Recompute topic_category and is_noise together (in that order)
-            # for every article, since is_noise_article's stage-1 anchor-word
-            # check (see noise_filter.SYSTEM_ANCHOR_SCOPE_CATEGORIES) needs
-            # the freshly classified topic_category, not the possibly-stale
-            # value already stored on the row.
+            # Recompute topic_category, is_noise, and (RESCUE model
+            # permitting) rescue_score/is_rescue together, in that order, for
+            # every article: is_noise_article's stage-1 anchor-word check
+            # (see noise_filter.SYSTEM_ANCHOR_SCOPE_CATEGORIES) and
+            # compute_rescue_score() both need the freshly classified
+            # topic_category, not the possibly-stale value already stored on
+            # the row.
+            #
+            # RESCUE scoring is skipped entirely (rows keep whatever
+            # rescue_score/is_rescue they already have -- 0/NULL for a fresh
+            # DB, since is_rescue defaults to 0 and rescue_score has no
+            # default) when train_rescue_model.py has never been run: the
+            # rescue_category_priors table it populates is still empty, so
+            # there is nothing to score with. This is a plain feature check,
+            # not an error path -- an untrained DB is a normal, supported
+            # state.
+            has_rescue_model = cur.execute(
+                "SELECT 1 FROM rescue_category_priors LIMIT 1"
+            ).fetchone() is not None
+
             rows_to_refresh = cur.execute("""
                 SELECT i.id, i.title, i.summary, i.link, i.topic_category, i.is_noise,
+                       i.rescue_score, i.is_rescue,
                        f.url AS feed_url, f.category AS feed_category, f.source_type AS feed_source_type
                 FROM items i
                 JOIN feeds f ON i.feed_id = f.id
@@ -345,25 +389,29 @@ def init_db():
                     topic_category=refreshed_topic_category,
                 ) else 0
 
-                topic_changed = row["topic_category"] != refreshed_topic_category
-                noise_changed = (row["is_noise"] or 0) != refreshed_is_noise
-                if not topic_changed and not noise_changed:
+                updates = {}
+                if row["topic_category"] != refreshed_topic_category:
+                    updates["topic_category"] = refreshed_topic_category
+                if (row["is_noise"] or 0) != refreshed_is_noise:
+                    updates["is_noise"] = refreshed_is_noise
+
+                if has_rescue_model:
+                    refreshed_rescue_score, refreshed_is_rescue_bool = compute_rescue_score(
+                        row["title"], row["summary"], refreshed_topic_category
+                    )
+                    refreshed_is_rescue = 1 if refreshed_is_rescue_bool else 0
+                    if row["rescue_score"] != refreshed_rescue_score:
+                        updates["rescue_score"] = refreshed_rescue_score
+                    if (row["is_rescue"] or 0) != refreshed_is_rescue:
+                        updates["is_rescue"] = refreshed_is_rescue
+
+                if not updates:
                     continue
-                if topic_changed and noise_changed:
-                    cur.execute(
-                        "UPDATE items SET topic_category=?, is_noise=? WHERE id=?",
-                        (refreshed_topic_category, refreshed_is_noise, row["id"])
-                    )
-                elif topic_changed:
-                    cur.execute(
-                        "UPDATE items SET topic_category=? WHERE id=?",
-                        (refreshed_topic_category, row["id"])
-                    )
-                else:
-                    cur.execute(
-                        "UPDATE items SET is_noise=? WHERE id=?",
-                        (refreshed_is_noise, row["id"])
-                    )
+                set_clause = ", ".join(f"{column}=?" for column in updates)
+                cur.execute(
+                    f"UPDATE items SET {set_clause} WHERE id=?",
+                    (*updates.values(), row["id"]),
+                )
 
             cur.execute("ANALYZE")
             conn.commit()
@@ -593,7 +641,7 @@ def get_summary_metrics_row():
         conn.close()
 
 
-def list_articles(keyword="", category=""):
+def list_articles(keyword="", category="", rescue_filter="all"):
     conn = get_conn()
 
     query = """
@@ -611,6 +659,7 @@ def list_articles(keyword="", category=""):
         MAX(COALESCE(i.generated_overview_error, '')) as generated_overview_error,
         MAX(COALESCE(i.generated_overview_source, '')) as generated_overview_source,
         MAX(COALESCE(i.generated_at, '')) as generated_at,
+        MAX(COALESCE(i.is_rescue, 0)) as is_rescue,
         i.link as link,
         MAX(i.title) as title,
         MAX(COALESCE(i.summary, '')) as summary
@@ -639,6 +688,11 @@ def list_articles(keyword="", category=""):
     if category:
         query += " AND COALESCE(i.topic_category, '') = ?"
         params.append(category)
+
+    if rescue_filter == "hide_rescue":
+        query += " AND COALESCE(i.is_rescue, 0) = 0"
+    elif rescue_filter == "rescue_only":
+        query += " AND i.is_rescue = 1"
 
     for excluded_keyword in get_excluded_domain_keywords():
         query += " AND LOWER(COALESCE(i.link, '')) NOT LIKE ?"
@@ -674,6 +728,7 @@ def get_item_with_feed_by_id(item_id):
                 COALESCE(i.generated_overview_error, '') as generated_overview_error,
                 COALESCE(i.generated_overview_source, '') as generated_overview_source,
                 COALESCE(i.generated_at, '') as generated_at,
+                COALESCE(i.is_rescue, 0) as is_rescue,
                 i.link as link,
                 COALESCE(i.title, '') as title,
                 COALESCE(i.summary, '') as summary
@@ -708,6 +763,7 @@ def list_articles_by_key(article_key_value):
                 COALESCE(i.generated_overview_error, '') as generated_overview_error,
                 COALESCE(i.generated_overview_source, '') as generated_overview_source,
                 COALESCE(i.generated_at, '') as generated_at,
+                COALESCE(i.is_rescue, 0) as is_rescue,
                 i.link as link,
                 COALESCE(i.title, '') as title,
                 COALESCE(i.summary, '') as summary
@@ -744,6 +800,7 @@ def list_articles_by_title_key(title_key_value):
                 COALESCE(i.generated_overview_error, '') as generated_overview_error,
                 COALESCE(i.generated_overview_source, '') as generated_overview_source,
                 COALESCE(i.generated_at, '') as generated_at,
+                COALESCE(i.is_rescue, 0) as is_rescue,
                 i.link as link,
                 COALESCE(i.title, '') as title,
                 COALESCE(i.summary, '') as summary
