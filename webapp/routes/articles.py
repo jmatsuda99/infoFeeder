@@ -4,7 +4,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, Response
 
 from claude_generator import generate_and_store_overview
-from db import update_articles_read_status, update_articles_saved_status
+from db import update_articles_read_status, update_articles_rescue_override, update_articles_saved_status
 from fetcher import fetch_active_feeds
 from jst_format import is_recent_article
 from version import read_app_version
@@ -243,5 +243,23 @@ def update_saved(
     update_articles_saved_status(get_group_article_keys(article_key_value), is_saved == "true")
     if is_saved == "true":
         generate_and_store_overview(article_key_value)
+    list_ctx = _list_filter_context(keyword, read_filter, saved_filter, category_filter, rescue_filter, sort_order, limit)
+    return _article_card_response(request, article_key_value, **list_ctx)
+
+
+@router.post("/articles/rescue", response_class=HTMLResponse)
+def update_rescue_override(
+    request: Request,
+    article_key_value: str = Form(...),
+    is_rescue_override: str = Form(...),
+    keyword: str = Form(""),
+    read_filter: str = Form("all"),
+    saved_filter: str = Form("all"),
+    category_filter: str = Form(""),
+    rescue_filter: str = Form("all"),
+    sort_order: str = Form("newest"),
+    limit: int = Form(50),
+):
+    update_articles_rescue_override(get_group_article_keys(article_key_value), is_rescue_override == "true")
     list_ctx = _list_filter_context(keyword, read_filter, saved_filter, category_filter, rescue_filter, sort_order, limit)
     return _article_card_response(request, article_key_value, **list_ctx)

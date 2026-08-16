@@ -197,6 +197,8 @@ def init_db():
                 cur.execute("ALTER TABLE items ADD COLUMN rescue_score REAL")
             if "is_rescue" not in item_columns:
                 cur.execute("ALTER TABLE items ADD COLUMN is_rescue INTEGER DEFAULT 0")
+            if "rescue_override" not in item_columns:
+                cur.execute("ALTER TABLE items ADD COLUMN rescue_override INTEGER DEFAULT 0")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_article_key ON items(article_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_title_key ON items(title_key)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_items_published ON items(published)")
@@ -659,7 +661,8 @@ def list_articles(keyword="", category="", rescue_filter="all"):
         MAX(COALESCE(i.generated_overview_error, '')) as generated_overview_error,
         MAX(COALESCE(i.generated_overview_source, '')) as generated_overview_source,
         MAX(COALESCE(i.generated_at, '')) as generated_at,
-        MAX(COALESCE(i.is_rescue, 0)) as is_rescue,
+        MAX(CASE WHEN COALESCE(i.is_rescue, 0) = 1 OR COALESCE(i.rescue_override, 0) = 1 THEN 1 ELSE 0 END) as is_rescue,
+        MAX(COALESCE(i.rescue_override, 0)) as rescue_override,
         i.link as link,
         MAX(i.title) as title,
         MAX(COALESCE(i.summary, '')) as summary
@@ -690,9 +693,9 @@ def list_articles(keyword="", category="", rescue_filter="all"):
         params.append(category)
 
     if rescue_filter == "hide_rescue":
-        query += " AND COALESCE(i.is_rescue, 0) = 0"
+        query += " AND COALESCE(i.is_rescue, 0) = 0 AND COALESCE(i.rescue_override, 0) = 0"
     elif rescue_filter == "rescue_only":
-        query += " AND i.is_rescue = 1"
+        query += " AND (i.is_rescue = 1 OR COALESCE(i.rescue_override, 0) = 1)"
 
     for excluded_keyword in get_excluded_domain_keywords():
         query += " AND LOWER(COALESCE(i.link, '')) NOT LIKE ?"
@@ -728,7 +731,8 @@ def get_item_with_feed_by_id(item_id):
                 COALESCE(i.generated_overview_error, '') as generated_overview_error,
                 COALESCE(i.generated_overview_source, '') as generated_overview_source,
                 COALESCE(i.generated_at, '') as generated_at,
-                COALESCE(i.is_rescue, 0) as is_rescue,
+                CASE WHEN COALESCE(i.is_rescue, 0) = 1 OR COALESCE(i.rescue_override, 0) = 1 THEN 1 ELSE 0 END as is_rescue,
+                COALESCE(i.rescue_override, 0) as rescue_override,
                 i.link as link,
                 COALESCE(i.title, '') as title,
                 COALESCE(i.summary, '') as summary
@@ -763,7 +767,8 @@ def list_articles_by_key(article_key_value):
                 COALESCE(i.generated_overview_error, '') as generated_overview_error,
                 COALESCE(i.generated_overview_source, '') as generated_overview_source,
                 COALESCE(i.generated_at, '') as generated_at,
-                COALESCE(i.is_rescue, 0) as is_rescue,
+                CASE WHEN COALESCE(i.is_rescue, 0) = 1 OR COALESCE(i.rescue_override, 0) = 1 THEN 1 ELSE 0 END as is_rescue,
+                COALESCE(i.rescue_override, 0) as rescue_override,
                 i.link as link,
                 COALESCE(i.title, '') as title,
                 COALESCE(i.summary, '') as summary
@@ -800,7 +805,8 @@ def list_articles_by_title_key(title_key_value):
                 COALESCE(i.generated_overview_error, '') as generated_overview_error,
                 COALESCE(i.generated_overview_source, '') as generated_overview_source,
                 COALESCE(i.generated_at, '') as generated_at,
-                COALESCE(i.is_rescue, 0) as is_rescue,
+                CASE WHEN COALESCE(i.is_rescue, 0) = 1 OR COALESCE(i.rescue_override, 0) = 1 THEN 1 ELSE 0 END as is_rescue,
+                COALESCE(i.rescue_override, 0) as rescue_override,
                 i.link as link,
                 COALESCE(i.title, '') as title,
                 COALESCE(i.summary, '') as summary
@@ -871,6 +877,44 @@ def update_articles_saved_status(article_keys, is_saved):
             conn.close()
 
     run_with_retry(_update_articles_saved_status)
+
+
+def update_article_rescue_override(article_key_value, is_override):
+    def _update_article_rescue_override():
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "UPDATE items SET rescue_override=? WHERE article_key=?",
+                (1 if is_override else 0, article_key_value)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    run_with_retry(_update_article_rescue_override)
+
+
+def update_articles_rescue_override(article_keys, is_override):
+    keys = [key for key in article_keys if key]
+    if not keys:
+        return
+
+    placeholders = ",".join(["?"] * len(keys))
+
+    def _update_articles_rescue_override():
+        conn = get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"UPDATE items SET rescue_override=? WHERE article_key IN ({placeholders})",
+                [1 if is_override else 0, *keys]
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    run_with_retry(_update_articles_rescue_override)
 
 
 def get_article_generation_input(article_key_value):

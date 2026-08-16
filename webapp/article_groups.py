@@ -72,6 +72,7 @@ def build_article_groups(df):
                 "is_read": bool(sorted_group["is_read"].any()),
                 "is_saved": bool(sorted_group["is_saved"].any()),
                 "is_rescue": bool(representative["is_rescue"]),
+                "rescue_override": bool(representative.get("rescue_override", 0)),
                 "saved_at": representative.get("saved_at", "") or "",
                 "group_count": int(len(sorted_group)),
                 "related_articles": [

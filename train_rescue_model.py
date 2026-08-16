@@ -32,6 +32,20 @@ For each candidate term `t`, within category `c` only:
   computed separately per category so a term's weight reflects how it
   behaves *within* that category's articles, not the whole corpus.)
 
+  Positive side (saved_with/saved_without) counts articles with is_saved=1,
+  unweighted -- unchanged from the original design. Negative side
+  (nonsaved_with/nonsaved_without) counts articles with is_saved=0, but an
+  article the user has manually flagged via items.rescue_override=1 (an
+  explicit "this is low priority" judgment, distinct from simply never
+  having been SAVEd) counts OVERRIDE_NEGATIVE_WEIGHT times instead of once --
+  it's a stronger negative signal than an article that merely hasn't been
+  SAVEd yet. An article with both is_saved=1 and rescue_override=1 (the user
+  SAVEd it after -- or despite -- flagging it low priority) is treated as
+  purely positive: the explicit SAVE action wins and the article contributes
+  nothing to the negative side. Category priors (prior_c) are NOT affected by
+  rescue_override -- they remain based solely on is_saved, since a manual
+  per-article override shouldn't skew the category-wide base rate.
+
   Two guards, both required before a term's weight is used at all:
   - Occurrence guard: a term appearing in fewer than MIN_TERM_OCCURRENCES
     articles within the category is skipped (not enough data for a stable
@@ -115,6 +129,17 @@ MAX_TERM_PRESENCE_RATE = 0.85
 WEIGHT_CLIP = 2.5
 BOTTOM_PERCENTILE = 0.20
 
+# How much more heavily a manually-overridden (items.rescue_override=1, and
+# is_saved=0) article counts on the negative side of a term's
+# log-likelihood-ratio, relative to an ordinary not-SAVEd article (weight 1).
+# The user explicitly marking an article low-priority is a stronger negative
+# signal than an article simply never having been SAVEd, so it's counted as
+# if it were OVERRIDE_NEGATIVE_WEIGHT separate not-SAVEd articles containing
+# the same terms. Does not affect prior_c (see module docstring) or the 85%
+# presence-rate / MIN_TERM_OCCURRENCES guards, which stay on raw article
+# counts.
+OVERRIDE_NEGATIVE_WEIGHT = 3
+
 # A model with *zero* discriminative power for a category would still show a
 # leak rate of ~BOTTOM_PERCENTILE (20%): SAVEd articles would be scattered
 # uniformly across the score range, so ~20% of them would land in the bottom
@@ -173,7 +198,8 @@ def _fetch_training_rows():
         return cur.execute(
             """
             SELECT title, summary, COALESCE(topic_category, '') AS topic_category,
-                   COALESCE(is_saved, 0) AS is_saved
+                   COALESCE(is_saved, 0) AS is_saved,
+                   COALESCE(rescue_override, 0) AS rescue_override
             FROM items
             WHERE COALESCE(is_noise, 0) = 0
             """
@@ -183,15 +209,31 @@ def _fetch_training_rows():
 
 
 def _compute_category_weights(articles):
-    """articles: list of (text_lower, is_saved). Returns {term: weight}."""
+    """articles: list of (text_lower, is_saved, negative_weight).
+
+    negative_weight is only meaningful for is_saved=False rows: 1 for an
+    ordinary not-SAVEd article, OVERRIDE_NEGATIVE_WEIGHT for one the user
+    manually flagged low-priority (rescue_override=1) -- see
+    OVERRIDE_NEGATIVE_WEIGHT's own comment. is_saved=True rows always
+    contribute to the positive side regardless of their negative_weight
+    value (SAVE wins over any override -- see module docstring).
+
+    Returns {term: weight}.
+    """
     n = len(articles)
-    saved_n = sum(1 for _, is_saved in articles if is_saved)
-    nonsaved_n = n - saved_n
+    saved_n = sum(1 for _, is_saved, _ in articles if is_saved)
+    # Weighted size of the negative pool: each not-SAVEd article counts as
+    # its negative_weight (1, or OVERRIDE_NEGATIVE_WEIGHT if manually
+    # overridden) "articles" rather than literally 1.
+    nonsaved_n = sum(neg_weight for _, is_saved, neg_weight in articles if not is_saved)
 
     weights = {}
     for term in CANDIDATE_TERMS:
         term_lower = term.lower()
-        has_flags = [term_lower in text for text, _ in articles]
+        has_flags = [term_lower in text for text, _, _ in articles]
+        # Raw (unweighted) occurrence count across all articles -- the
+        # MIN_TERM_OCCURRENCES / 85% presence-rate guards intentionally stay
+        # on actual article counts, not negative-weighted pseudo-counts.
         occurrence_count = sum(has_flags)
         if occurrence_count < MIN_TERM_OCCURRENCES:
             continue
@@ -200,10 +242,14 @@ def _compute_category_weights(articles):
             continue
 
         saved_with = sum(
-            1 for (_, is_saved), has in zip(articles, has_flags) if is_saved and has
+            1 for (_, is_saved, _), has in zip(articles, has_flags) if is_saved and has
         )
         saved_without = saved_n - saved_with
-        nonsaved_with = occurrence_count - saved_with
+        nonsaved_with = sum(
+            neg_weight
+            for (_, is_saved, neg_weight), has in zip(articles, has_flags)
+            if not is_saved and has
+        )
         nonsaved_without = nonsaved_n - nonsaved_with
 
         w = math.log((saved_with + 1) / (saved_without + 1)) - math.log(
@@ -230,20 +276,29 @@ def train():
         if not category:
             continue
         text_lower = build_matchable_text(row["title"], row["summary"])
-        by_category[category].append((text_lower, bool(row["is_saved"])))
+        is_saved = bool(row["is_saved"])
+        is_override = bool(row["rescue_override"])
+        # SAVE wins over any manual override (see module docstring's
+        # "contradiction" case): a SAVEd-and-overridden article is treated
+        # as purely positive, so its negative_weight is never consulted.
+        negative_weight = 1 if is_saved else (OVERRIDE_NEGATIVE_WEIGHT if is_override else 1)
+        by_category[category].append((text_lower, is_saved, negative_weight))
 
     category_results = {}
 
     for category, articles in by_category.items():
         n = len(articles)
-        saved_n = sum(1 for _, is_saved in articles if is_saved)
+        # prior_c is based solely on is_saved, unaffected by rescue_override
+        # (see module docstring) -- a manual per-article override shouldn't
+        # skew the category-wide base rate.
+        saved_n = sum(1 for _, is_saved, _ in articles if is_saved)
         prior = _laplace_prior(saved_n, n)
         base_score = math.log(prior / (1.0 - prior))
         weights = _compute_category_weights(articles)
 
         scores = [
             (_score_article(base_score, weights, text_lower), is_saved)
-            for text_lower, is_saved in articles
+            for text_lower, is_saved, _ in articles
         ]
         scores.sort(key=lambda pair: pair[0])
         cutoff_index = max(1, math.ceil(n * BOTTOM_PERCENTILE)) if n else 0

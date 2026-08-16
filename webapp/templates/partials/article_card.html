@@ -81,6 +81,25 @@
                     <span class="slider"></span>
                 </span>
             </label>
+            <label class="switch-row">
+                <span>低優先度</span>
+                <span class="switch">
+                    <input
+                        type="checkbox"
+                        {% if group.rescue_override %}checked{% endif %}
+                        hx-post="/articles/rescue"
+                        hx-trigger="change"
+                        hx-target="#article-{{ group.id }}"
+                        hx-swap="outerHTML"
+                        hx-include="#article-filters"
+                        hx-vals='js:{
+                            article_key_value: {{ group.article_key | tojson }},
+                            is_rescue_override: event.target.checked ? "true" : "false"
+                        }'
+                    >
+                    <span class="slider"></span>
+                </span>
+            </label>
         </div>
     </div>
 
